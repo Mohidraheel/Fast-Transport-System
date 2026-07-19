@@ -46,6 +46,7 @@ function OTPVerification() {
       const userRes = await getUser();
       localStorage.setItem("is_staff", userRes.data.is_staff ? "true" : "false");
       localStorage.setItem("username", userRes.data.username);
+      localStorage.setItem("full_name", `${userRes.data.first_name || ""} ${userRes.data.last_name || ""}`.trim());
       navigate(userRes.data.is_staff ? "/admin/dashboard" : "/student/dashboard");
     } catch {
       // Auto-login failed (e.g. credentials not in state) — graceful fallback
@@ -168,7 +169,7 @@ const styles = {
   root: {
     position: "relative",
     width: "100vw",
-    height: "100vh",
+    minHeight: "100vh",
     overflow: "hidden",
     background: "#000",
     display: "flex",

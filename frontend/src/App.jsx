@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Home from "./pages/home";
 import Login from "./pages/auth/login";
 import Signup from "./pages/auth/signup";
+import ForgotPassword from "./pages/auth/ForgotPassword";
+import ResetPassword from "./pages/auth/ResetPassword";
 import AdminDashboard from "./pages/admin/dashboard";
 import StudentsPage from "./pages/admin/students";
 import BusesPage from "./pages/admin/buses";
@@ -25,8 +27,10 @@ import StudentMap from "./pages/student/StudentMap";
 import AdminComplaintsPage from "./pages/admin/complaints";
 import NotFoundPage from "./pages/NotFound";
 import AppFeedbackLayer from "./components/AppFeedbackLayer";
-import StudentRouteChange from "./pages/student/StudentRouteChange";           // ✅ NEW
-import AdminRouteChangeRequests from "./pages/admin/AdminRouteChangeRequests"; // ✅ NEW
+import StudentRouteChange from "./pages/student/StudentRouteChange";          
+import AdminRouteChangeRequests from "./pages/admin/AdminRouteChangeRequests";
+import AdminExportPage from "./pages/admin/AdminExport";
+
 
 // Redirect /dashboard based on stored role
 function DashboardRedirect() {
@@ -66,6 +70,8 @@ function App() {
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/verify-otp" element={<OTPVerification />} />
         <Route path="/dashboard" element={<PrivateRoute><DashboardRedirect /></PrivateRoute>} />
 
@@ -93,7 +99,8 @@ function App() {
         <Route path="/admin/routestop" element={<StaffRoute><RouteStopsPage /></StaffRoute>} />
         <Route path="/admin/feeverifications" element={<StaffRoute><AdminFeeVerifications /></StaffRoute>} />
         <Route path="/admin/student-bus-assignments" element={<StaffRoute><StudentBusAssignmentsPage /></StaffRoute>} />
-        <Route path="/admin/routechangerequests" element={<StaffRoute><AdminRouteChangeRequests /></StaffRoute>} /> {/* ✅ NEW */}
+        <Route path="/admin/routechangerequests" element={<StaffRoute><AdminRouteChangeRequests /></StaffRoute>} />
+        <Route path="/admin/export" element={<StaffRoute><AdminExportPage /></StaffRoute>} />
 
         <Route path="*" element={<NotFoundPage />} />
       </Routes>

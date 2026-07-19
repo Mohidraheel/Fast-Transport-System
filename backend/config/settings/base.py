@@ -4,14 +4,17 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-load_dotenv(BASE_DIR.parent / '.env')
+load_dotenv(BASE_DIR.parent / ".env")
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'change-me-in-production-use-a-long-random-string-at-least-32-chars!!')
+# ── Security ──────────────────────────────────────────────────────────────────
+# No fallback — if this env var is missing, the app must not start.
+SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 
-DEBUG = True
+DEBUG = False  # overridden per environment
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = []  # overridden per environment
 
+# ── Installed apps ────────────────────────────────────────────────────────────
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -25,6 +28,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
 ]
 
+# ── REST Framework ────────────────────────────────────────────────────────────
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -32,9 +36,12 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    # Pagination — prevents timeout on large datasets
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 500,
 }
 
-
+# ── Middleware ────────────────────────────────────────────────────────────────
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -43,6 +50,7 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -62,28 +70,74 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
+# ── Database ──────────────────────────────────────────────────────────────────
+# Default config for local development.
+# In production, prod.py overrides this entirely via DATABASE_URL.
 DATABASES = {
     'default': {
-         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('DATABASE_NAME', 'fasttransportdb'),
-        'USER': os.environ.get('DATABASE_USER', 'postgres'),
-        'PASSWORD': os.environ.get('DATABASE_PASSWORD', 'Pubgpro1'),
-        'HOST': os.environ.get('DATABASE_HOST', 'localhost'),
-        'PORT': os.environ.get('DATABASE_PORT', '5432'),
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME':     os.environ.get('DATABASE_NAME', 'fasttransportdb'),
+        'USER':     os.environ.get('DATABASE_USER', 'postgres'),
+        'PASSWORD': os.environ.get('DATABASE_PASSWORD', ''),
+        'HOST':     os.environ.get('DATABASE_HOST', 'localhost'),
+        'PORT':     os.environ.get('DATABASE_PORT', '5432'),
     }
 }
 
+# ── Static files ──────────────────────────────────────────────────────────────
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-STATIC_URL = '/static/'
+STATIC_URL  = '/static/'
 
-CORS_ALLOW_ALL_ORIGINS = True
+# ── Email ─────────────────────────────────────────────────────────────────────
+EMAIL_BACKEND      = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST         = 'smtp-relay.brevo.com'
+EMAIL_PORT         = 587
+EMAIL_USE_TLS      = True
+EMAIL_HOST_USER    = 'a8d609001@smtp-brevo.com'
+EMAIL_HOST_PASSWORD = os.environ['EMAIL_HOST_PASSWORD']
+DEFAULT_FROM_EMAIL = 'FAST-Transport <hassannafees.4017@gmail.com>'
 
+# ── CORS ──────────────────────────────────────────────────────────────────────
+# Set in dev.py / prod.py — never allow all in base.
+CORS_ALLOW_ALL_ORIGINS = False
 
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp-relay.brevo.com'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'a8d609001@smtp-brevo.com'
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")  # brevo SMTP password
+# ── Logging ───────────────────────────────────────────────────────────────────
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{asctime}] {levelname} {name} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': os.environ.get('DJANGO_LOG_LEVEL', 'INFO'),
+            'propagate': False,
+        },
+        'apps.transport': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+}
 
-DEFAULT_FROM_EMAIL = 'FAST Transport <hassannafees.4017@gmail.com>'
+# ── JWT ───────────────────────────────────────────────────────────────────────
+from datetime import timedelta
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME':  timedelta(hours=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+}
