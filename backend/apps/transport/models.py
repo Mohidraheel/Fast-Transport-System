@@ -75,6 +75,8 @@ class Bus(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    is_off_route = models.BooleanField(default=False)              # <- new
+    last_off_route_alert_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return self.bus_number
@@ -267,4 +269,12 @@ class OTPVerification(models.Model):
     def __str__(self):
         return f"OTP for {self.user.username}"
  
- 
+class BusLocationPing(models.Model):
+    bus = models.ForeignKey(Bus, on_delete=models.CASCADE, related_name="location_pings")
+    latitude = models.DecimalField(max_digits=9, decimal_places=6)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6)
+    distance_from_route_m = models.FloatField(null=True, blank=True)
+    recorded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.bus.bus_number} @ {self.recorded_at}"

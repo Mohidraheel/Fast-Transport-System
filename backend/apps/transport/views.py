@@ -35,6 +35,7 @@ from .permissions import (
     IsStudentCreateOnly
 )
 from .models import (
+    BusLocationPing,
     StudentProfile,
     Semester,
     Route,
@@ -76,14 +77,21 @@ from .serializers import (
     MaintenanceScheduleSerializer,
     NotificationSerializer,
     StudentProfileCreateSerializer,
-    TransportRegistrationSerializer
+    TransportRegistrationSerializer,
+    BusLocationPingSerializer,
+    
 )
+
 from .seatallocation import (
     allocate_seat_for_student,
     allocate_seat_on_assignment,
     reassign_seat_on_assignment,
 )
-
+# a view — auth question first, see below
+class BusLocationPingCreateView(generics.CreateAPIView):
+    queryset = BusLocationPing.objects.all()
+    serializer_class = BusLocationPingSerializer
+    permission_classes = [AllowAny]  # see note below
 class CurrentUserView(APIView):
     permission_classes = [IsAuthenticated]
 

@@ -19,6 +19,7 @@ from .models import (
     MaintenanceSchedule,
     Notification,
     TransportRegistration,
+    BusLocationPing,
 )
 
 class UserSerializer(serializers.ModelSerializer):
@@ -455,3 +456,12 @@ class StudentProfileCreateSerializer(serializers.ModelSerializer):
 
         profile = StudentProfile.objects.create(user=user, **validated_data)
         return profile
+    
+    
+class BusLocationPingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BusLocationPing
+        fields = ["id", "bus", "latitude", "longitude", "distance_from_route_m", "recorded_at"]
+        read_only_fields = ["distance_from_route_m", "recorded_at"]
+    
+    
