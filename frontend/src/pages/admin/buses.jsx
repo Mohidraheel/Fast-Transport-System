@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import PageShell, { PageTitle } from "../../components/PageShell";
 import Table from "../../components/Table";
-import { ConfirmModal, FormModal, StatusBadge, FormCard, Field, SectionBlock, inputStyle } from "../../components/ui";
+import { ConfirmModal, FormModal, StatusBadge, Pill, FormCard, Field, SectionBlock, inputStyle } from "../../components/ui";
 import { colors, fonts, radius, btn } from "../../theme";
 import { getBuses, createBus, updateBus, deleteBus } from "../../services/transportService";
 
@@ -104,6 +104,13 @@ function BusesPage() {
     {
       key: "is_active", label: "Status",
       render: (row) => <StatusBadge active={row.is_active} onClick={() => handleToggle(row.id, row.is_active)} />,
+    },
+    {
+      key: "is_off_route", label: "Route Status",
+      render: (row) =>
+        row.is_off_route
+          ? <Pill label="Off Route" variant="danger" />
+          : <Pill label="On Route" variant="success" />,
     },
     {
       key: "actions",

@@ -1,6 +1,7 @@
 // frontend/src/components/Navbar.jsx
 import { useNavigate } from "react-router-dom";
 import { colors, fonts, shadow } from "../theme";
+import NotificationBell from "./NotificationBell";
 
 // Props:
 //   title         – page title string
@@ -47,6 +48,8 @@ function Navbar({ title = "FAST Transport", isMobile = false, onMenuToggle }) {
       </div>
 
       <div style={styles.right}>
+        <NotificationBell />
+
         {/* Role badge — hide on mobile */}
         {!isMobile && (
           <span style={isStaff ? styles.roleAdmin : styles.roleStudent}>

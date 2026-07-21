@@ -104,3 +104,6 @@ export const confirmStripePayment = (regId) =>
 
 export const verifyPaymentOtp = (regId, otp) =>
   api.post(`/api/transport-registrations/${regId}/verify-payment-otp/`, { otp });
+
+// ── Notifications ──
+export const getNotifications = () => api.get("/api/notifications/");
