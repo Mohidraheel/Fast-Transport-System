@@ -8,6 +8,10 @@ import { useBreakpoint } from "../../utils/useBreakpoint";
 import api from "../../services/api";
 
 const POLL_INTERVAL_MS = 8000;
+const INCIDENT_POLL_INTERVAL_MS = 30000;
+const incidentColor = (severity) => (
+  severity === "high" ? "#EF4444" : severity === "medium" ? "#F97316" : "#F59E0B"
+);
 
 async function fetchRoadRoute(stops) {
   const coords = stops.map(s => `${s.lng},${s.lat}`).join(";");
@@ -25,6 +29,25 @@ async function fetchRoadRoute(stops) {
   return stops.map(s => [s.lng, s.lat]);
 }
 
+function incidentGeoJSON(incidents) {
+  const earthRadius = 6371000;
+  return { type: "FeatureCollection", features: incidents.map((incident) => {
+    const points = [];
+    const latitudeRadians = (Number(incident.latitude) * Math.PI) / 180;
+    const latitudeOffset = (Number(incident.radius_meters) / earthRadius) * (180 / Math.PI);
+    const longitudeOffset = latitudeOffset / Math.cos(latitudeRadians);
+    for (let index = 0; index <= 64; index += 1) {
+      const angle = (index / 64) * 2 * Math.PI;
+      points.push([Number(incident.longitude) + longitudeOffset * Math.sin(angle), Number(incident.latitude) + latitudeOffset * Math.cos(angle)]);
+    }
+    return { type: "Feature", properties: { color: incidentColor(incident.severity), incidentType: incident.incident_type_display, severity: incident.severity, occurredAt: incident.occurred_at, description: incident.description || "" }, geometry: { type: "Polygon", coordinates: [points] } };
+  }) };
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
+}
+
 export default function StudentMap() {
   const mapContainer = useRef(null);
   const mapRef       = useRef(null);
@@ -38,6 +61,7 @@ export default function StudentMap() {
   const [error, setError]               = useState("");
   const [lastUpdated, setLastUpdated]   = useState(null);
   const [isStale, setIsStale]           = useState(false);
+  const [incidents, setIncidents]       = useState([]);
 
   // 1. Load route metadata once
   useEffect(() => {
@@ -64,6 +88,19 @@ export default function StudentMap() {
     pollRef.current = setInterval(fetchLiveLocation, POLL_INTERVAL_MS);
     return () => clearInterval(pollRef.current);
   }, [fetchLiveLocation]);
+
+  // 2b. Poll approved incidents
+  const fetchIncidents = useCallback(() => {
+    api.get("/api/incidents/approved/")
+      .then(res => setIncidents(Array.isArray(res.data) ? res.data : []))
+      .catch(err => console.error("Failed to load incidents:", err));
+  }, []);
+
+  useEffect(() => {
+    fetchIncidents();
+    const interval = setInterval(fetchIncidents, INCIDENT_POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [fetchIncidents]);
 
   // 3. Init map ONCE on mount
   useEffect(() => {
@@ -94,6 +131,57 @@ export default function StudentMap() {
       busMarkerRef.current = new maplibregl.Marker({ element: busEl, anchor: "center" })
         .setLngLat([67.0847, 24.9215])
         .addTo(map);
+
+      // Add incidents source & layers
+      map.addSource("incidents", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] }
+      });
+      map.addLayer({
+        id: "incidents-fill",
+        type: "fill",
+        source: "incidents",
+        paint: {
+          "fill-color": ["get", "color"],
+          "fill-opacity": 0.4
+        }
+      });
+      map.addLayer({
+        id: "incidents-outline",
+        type: "line",
+        source: "incidents",
+        paint: {
+          "line-color": ["get", "color"],
+          "line-width": 2
+        }
+      });
+
+      // Incident Popups
+      map.on("click", "incidents-fill", (e) => {
+        if (!e.features || !e.features[0]) return;
+        const props = e.features[0].properties;
+        const html = `
+          <div style="font-family: sans-serif; font-size: 13px;">
+            <strong style="color: ${props.color}; font-size: 14px;">
+              ${escapeHtml(props.incidentType)}
+            </strong>
+            <br/><span style="color: #666;">Occurred:</span> ${new Date(props.occurredAt).toLocaleString()}
+            <br/><span style="color: #666;">Severity:</span> <span style="text-transform: capitalize;">${escapeHtml(props.severity)}</span>
+            ${props.description ? `<div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid #eee;">${escapeHtml(props.description)}</div>` : ""}
+          </div>
+        `;
+        new maplibregl.Popup({ closeButton: false })
+          .setLngLat(e.lngLat)
+          .setHTML(html)
+          .addTo(map);
+      });
+
+      map.on("mouseenter", "incidents-fill", () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", "incidents-fill", () => {
+        map.getCanvas().style.cursor = "";
+      });
     });
 
     return () => {
@@ -192,6 +280,25 @@ export default function StudentMap() {
     }
     busMarkerRef.current.setLngLat([lng, lat]);
   }, [liveData]);
+
+  // 6. Update incidents GeoJSON
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const map = mapRef.current;
+    
+    const updateIncidents = () => {
+      const src = map.getSource("incidents");
+      if (src) {
+        src.setData(incidentGeoJSON(incidents));
+      }
+    };
+
+    if (map.isStyleLoaded()) {
+      updateIncidents();
+    } else {
+      map.once("load", updateIncidents);
+    }
+  }, [incidents]);
 
   const timeSince = (date) => {
     if (!date) return "—";

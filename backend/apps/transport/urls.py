@@ -7,7 +7,7 @@ from .views import students_list, get_challan, pay_challan, verify_fee, list_fee
 from .views import student_bus_tracking, live_bus_location
 from .views import create_payment_intent, confirm_stripe_payment, verify_payment_otp
 from .views import download_transport_card
-from .views import BusLocationPingCreateView
+from .views import BusLocationPingCreateView, IncidentViewSet, approved_incidents
 router = DefaultRouter()
 
 # Existing ViewSets
@@ -28,6 +28,7 @@ router.register(r'route-change-requests', RouteChangeRequestViewSet, basename='r
 router.register(r'maintenance-schedules', MaintenanceScheduleViewSet)
 router.register(r'notifications', NotificationViewSet)
 router.register(r"transport-registrations", TransportRegistrationViewSet)
+router.register(r"incidents", IncidentViewSet, basename="incident")
 
 urlpatterns = [
     # Explicit paths FIRST
@@ -50,4 +51,5 @@ urlpatterns = [
     path('transport-registrations/<int:pk>/verify-payment-otp/', verify_payment_otp, name='verify-payment-otp'),
     path("download-transport-card/", download_transport_card, name="download-transport-card"),
     path("bus-location/ping/", BusLocationPingCreateView.as_view(), name="bus-location-ping"),
+    path("incidents/approved/", approved_incidents, name="approved-incidents"),
 ] + router.urls  # Router LAST
