@@ -36,6 +36,8 @@ urlpatterns = [
     path('user/', CurrentUserView.as_view(), name='current-user'),
     path('verify-otp/', verify_otp, name='verify-otp'),
     path('resend-otp/', resend_otp, name='resend-otp'),
+    path('forgot-password/', forgot_password, name='forgot-password'),
+    path('reset-password/', reset_password, name='reset-password'),
     path('dashboard/', DashboardView.as_view(), name='dashboard'),
     path("students-list/", students_list),
     path('transport-registrations/<int:pk>/challan/', get_challan),
