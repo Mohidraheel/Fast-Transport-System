@@ -32,7 +32,13 @@ class Semester(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.name} {self.year}"
+        # Semester names are entered by hand and often already contain the year
+        # ("Spring 2026"), which would otherwise render as "Spring 2026 2026".
+        # Only append the year when the name does not already carry it.
+        name = (self.name or "").strip()
+        if not name:
+            return str(self.year)
+        return name if str(self.year) in name else f"{name} {self.year}"
 
 
 class Route(models.Model):
