@@ -154,6 +154,169 @@ class RouteViewSet(viewsets.ModelViewSet):
 
         return Response(data)
 
+    @action(detail=True, methods=["get"], permission_classes=[IsAdmin])
+    def overview(self, request, pk=None):
+        """
+        Full admin view of a single route: its stops, the bus + driver currently
+        assigned to it, and every student registered on it this semester
+        (Approved / Pending / payment_submitted / Rejected alike).
+        """
+        route = self.get_object()
+
+        # ── Semester ────────────────────────────────────────────────────────
+        # Prefer the active semester; fall back to the most recent one so the
+        # page still renders something useful between semesters.
+        semester = Semester.objects.filter(is_active=True).first()
+        if semester is None:
+            semester = Semester.objects.order_by("-year", "-start_date").first()
+
+        # ── Bus + driver ────────────────────────────────────────────────────
+        assignment_qs = RouteAssignment.objects.filter(
+            route=route, is_active=True
+        ).select_related("bus", "driver", "semester")
+
+        assignment = None
+        if semester is not None:
+            assignment = assignment_qs.filter(semester=semester).first()
+        if assignment is None:
+            assignment = assignment_qs.order_by("-created_at").first()
+
+        assignment_data = None
+        if assignment:
+            bus, driver = assignment.bus, assignment.driver
+            assignment_data = {
+                "id": assignment.id,
+                "semester": str(assignment.semester),
+                "bus": {
+                    "id": bus.id,
+                    "bus_number": bus.bus_number,
+                    "model": bus.model,
+                    "capacity": bus.capacity,
+                    "is_active": bus.is_active,
+                    "is_off_route": bus.is_off_route,
+                },
+                "driver": {
+                    "id": driver.id,
+                    "name": driver.name,
+                    "phone": driver.phone,
+                    "cnic": driver.cnic,
+                    "license_no": driver.license_no,
+                    "address": driver.address,
+                    "is_available": driver.is_available,
+                },
+            }
+
+        # ── Stops ───────────────────────────────────────────────────────────
+        stops = [
+            {
+                "id": rs.id,
+                "stop_order": rs.stop_order,
+                "name": rs.stop.name,
+                "address": rs.stop.address,
+                "morning_eta": rs.morning_eta,
+                "evening_eta": rs.evening_eta,
+            }
+            for rs in RouteStop.objects.filter(route=route)
+            .select_related("stop")
+            .order_by("stop_order")
+        ]
+
+        # ── Registered students ─────────────────────────────────────────────
+        # TransportRegistration is the master record: it is the only one that
+        # reliably carries Pending / Rejected rows.
+        reg_qs = TransportRegistration.objects.filter(route=route)
+        if semester is not None:
+            reg_qs = reg_qs.filter(semester=semester)
+        reg_qs = reg_qs.select_related("student__user", "stop").order_by(
+            "student__roll_number"
+        )
+
+        # Seat numbers live on SeatAllocation -> SemesterRegistration, so build
+        # a {student_id: seat_number} map in one query instead of per row.
+        seat_map = {}
+        if semester is not None:
+            seat_map = dict(
+                SeatAllocation.objects.filter(
+                    registration__route=route,
+                    registration__semester=semester,
+                ).values_list("registration__student_id", "seat_number")
+            )
+
+        # Payment status is DERIVED, not read from TransportRegistration.is_paid.
+        # That flag is only written by the manual seat-assign action, so students
+        # who paid via challan/Stripe or were cleared by an admin fee verification
+        # keep is_paid=False and would render as UNPAID. The truth lives on the
+        # Challan and on FeeVerification, so read through to those instead.
+        paid_registration_ids = set(
+            Challan.objects.filter(
+                registration__route=route, status="paid"
+            ).values_list("registration_id", flat=True)
+        )
+        verified_fee_student_ids = set()
+        if semester is not None:
+            verified_fee_student_ids = set(
+                FeeVerification.objects.filter(
+                    semester=semester, is_verified=True
+                ).values_list("student_id", flat=True)
+            )
+
+        students = []
+        for reg in reg_qs:
+            profile = reg.student
+            user = profile.user
+            full_name = f"{user.first_name} {user.last_name}".strip() or user.username
+            is_paid = (
+                reg.id in paid_registration_ids
+                or profile.id in verified_fee_student_ids
+                or reg.is_paid
+            )
+            students.append({
+                "registration_id": reg.id,
+                "student_id": profile.id,
+                "roll_number": profile.roll_number,
+                "name": full_name,
+                "email": user.email,
+                "department": profile.department,
+                "batch": profile.batch,
+                "phone": profile.phone,
+                "stop": reg.stop.name if reg.stop else None,
+                "status": reg.status,
+                "is_paid": is_paid,
+                "fee_amount": reg.fee_amount,
+                "seat_number": seat_map.get(profile.id),
+                "registered_at": reg.created_at,
+            })
+
+        # ── Stats ───────────────────────────────────────────────────────────
+        capacity = assignment_data["bus"]["capacity"] if assignment_data else None
+        approved = sum(1 for s in students if s["status"] == "Approved")
+        pending = sum(
+            1 for s in students if s["status"] in ("Pending", "payment_submitted")
+        )
+        rejected = sum(1 for s in students if s["status"] == "Rejected")
+
+        return Response({
+            "route": {
+                "id": route.id,
+                "name": route.name,
+                "description": route.description,
+                "is_active": route.is_active,
+            },
+            "semester": str(semester) if semester else None,
+            "assignment": assignment_data,
+            "stops": stops,
+            "students": students,
+            "stats": {
+                "capacity": capacity,
+                "registered": len(students),
+                "approved": approved,
+                "pending": pending,
+                "rejected": rejected,
+                "paid": sum(1 for s in students if s["is_paid"]),
+                "seats_left": (capacity - approved) if capacity is not None else None,
+            },
+        })
+
 
 class StopViewSet(viewsets.ModelViewSet):
     queryset = Stop.objects.all()

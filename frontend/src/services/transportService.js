@@ -24,6 +24,7 @@ export const getRoutes = () => api.get("/api/routes/");
 export const createRoute = (data) => api.post("/api/routes/", data);
 export const updateRoute = (id, data) => api.patch(`/api/routes/${id}/`, data);
 export const deleteRoute = (id) => api.delete(`/api/routes/${id}/`);
+export const getRouteOverview = (id) => api.get(`/api/routes/${id}/overview/`);
 
 export const getAssignments = () => api.get("/api/route-assignments/");
 export const createAssignment = (data) => api.post("/api/route-assignments/", data);

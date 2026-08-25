@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import PageShell, { PageTitle } from "../../components/PageShell";
 import Table from "../../components/Table";
 import { ConfirmModal, FormModal, StatusBadge, FormCard, Field, SectionBlock, inputStyle } from "../../components/ui";
-import { btn } from "../../theme";
+import { btn, colors } from "../../theme";
 import { getRoutes, createRoute, updateRoute, deleteRoute } from "../../services/transportService";
 
 const actionBtn = { ...btn.ghost, padding: "7px 12px", fontSize: "12px" };
+
+const routeLinkStyle = {
+  color: colors.accent,
+  fontWeight: 600,
+  textDecoration: "none",
+  borderBottom: `1px dotted ${colors.accent}`,
+  cursor: "pointer",
+};
 
 function RoutesPage() {
   const [routes, setRoutes] = useState([]);
@@ -83,7 +92,15 @@ function RoutesPage() {
   };
 
   const columns = [
-    { key: "name", label: "Name" },
+    {
+      key: "name",
+      label: "Name",
+      render: (row) => (
+        <Link to={`/admin/routes/${row.id}`} style={routeLinkStyle} title="View driver, bus and registered students">
+          {row.name}
+        </Link>
+      ),
+    },
     { key: "description", label: "Description" },
     {
       key: "is_active", label: "Status",
@@ -142,7 +159,7 @@ function RoutesPage() {
         </FormModal>
       )}
 
-      <PageTitle sub="Manage transport routes.">Routes</PageTitle>
+      <PageTitle sub="Manage transport routes. Click a route name to see its bus, driver and registered students.">Routes</PageTitle>
 
       <FormCard title="Add New Route" onSubmit={handleSubmit} submitLabel="Add Route">
         <Field label="Route Name" required flex="1 1 160px">
