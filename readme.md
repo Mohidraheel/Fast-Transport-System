@@ -11,7 +11,7 @@
 
 ## Introduction
 
-**FAST Transport** is a transport management platform built for FAST NUCES to replace manual, paper-based processes with a modern digital system. It enables students to register for transport each semester, pay fees online, track buses in real-time, and manage route changes — while giving administrators a centralized dashboard for managing the entire fleet, verifying payments, and resolving complaints.
+**FAST Transport** is a transport management platform built for FAST NUCES to replace manual, paper based processes with a modern digital system. It enables students to register for transport each semester, pay fees online, track buses in real-time, and manage route changes — while giving administrators a centralized dashboard for managing the entire fleet, verifying payments, and resolving complaints.
 
 Built with **Django REST Framework** and **React (Vite)**, it follows a clean three-tier architecture with JWT authentication, role-based access control, and responsive design across all devices.
 
