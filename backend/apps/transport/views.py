@@ -1280,15 +1280,62 @@ class MaintenanceScheduleViewSet(viewsets.ModelViewSet):
 
 
 class NotificationViewSet(viewsets.ModelViewSet):
+    """
+    A user's own notifications. Nobody — staff included — reads anyone else's
+    through this endpoint.
+
+    The previous get_queryset() returned Notification.objects.all() to any user
+    who was not in a "Student" group, and the React bell filtered the result
+    client-side. That still shipped every user's notifications over the wire,
+    so any authenticated account could read them straight from the API.
+    Scoping to request.user here is the actual fix; the client-side filter is
+    now redundant.
+    """
     queryset = Notification.objects.all()
     serializer_class = NotificationSerializer
-    permission_classes = [IsAdminOrReadOnly] # Admin full access, Students read only
+    # Owner-scoped, so users may mark their own notifications read and delete
+    # them. IsAdminOrReadOnly would have 403'd students on both.
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        user = self.request.user
-        if user.groups.filter(name="Student").exists():
-            return Notification.objects.filter(user=user)
-        return Notification.objects.all()
+        return (
+            Notification.objects
+            .filter(user=self.request.user)
+            .order_by("-created_at")
+        )
+
+    def perform_create(self, serializer):
+        # Notifications are raised by the system, never posted by a client
+        # on someone else's behalf.
+        serializer.save(user=self.request.user)
+
+    @action(detail=True, methods=["post"], url_path="mark-read")
+    def mark_read(self, request, pk=None):
+        notification = self.get_object()  # already owner-scoped
+        if not notification.is_read:
+            notification.is_read = True
+            notification.save(update_fields=["is_read"])
+        return Response(self.get_serializer(notification).data)
+
+    @action(detail=True, methods=["post"], url_path="mark-unread")
+    def mark_unread(self, request, pk=None):
+        notification = self.get_object()
+        if notification.is_read:
+            notification.is_read = False
+            notification.save(update_fields=["is_read"])
+        return Response(self.get_serializer(notification).data)
+
+    @action(detail=False, methods=["post"], url_path="mark-all-read")
+    def mark_all_read(self, request):
+        updated = self.get_queryset().filter(is_read=False).update(is_read=True)
+        return Response({"detail": "All notifications marked as read.",
+                         "updated": updated})
+
+    @action(detail=False, methods=["delete", "post"], url_path="clear-all")
+    def clear_all(self, request):
+        deleted, _ = self.get_queryset().delete()
+        return Response({"detail": "All notifications cleared.",
+                         "deleted": deleted})
 
 
 class StudentSignupView(generics.CreateAPIView):

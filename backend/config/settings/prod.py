@@ -42,3 +42,11 @@ X_FRAME_OPTIONS               = 'DENY'
 # ── Email (Brevo HTTP API — SMTP port 587 is blocked on Render free tier) ────
 EMAIL_BACKEND = 'config.brevo_backend.BrevoAPIEmailBackend'
 BREVO_API_KEY = os.environ.get('BREVO_API_KEY', '')
+
+# ── Notification emails ──────────────────────────────────────────────────────
+# On in production. Set NOTIFICATION_EMAILS_ENABLED=false in the environment to
+# kill all notification email without a redeploy (e.g. if the Brevo quota is
+# exhausted and signup OTPs need the remaining headroom).
+NOTIFICATION_EMAILS_ENABLED = (
+    os.environ.get('NOTIFICATION_EMAILS_ENABLED', 'true').lower() == 'true'
+)

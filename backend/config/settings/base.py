@@ -97,6 +97,21 @@ EMAIL_HOST_USER    = 'a8d609001@smtp-brevo.com'
 EMAIL_HOST_PASSWORD = os.environ['EMAIL_HOST_PASSWORD']
 DEFAULT_FROM_EMAIL = 'FAST-Transport <hassannafees.4017@gmail.com>'
 
+# ── Notification emails ──────────────────────────────────────────────────────
+# Every Notification row is mirrored to the recipient's inbox (see
+# apps/transport/emails.py). Off by default so nothing sends until a settings
+# module opts in — dev leaves it off so local testing does not consume the
+# Brevo free-tier daily quota that signup OTPs also draw from.
+NOTIFICATION_EMAILS_ENABLED = False
+
+# Skip staff recipients. Admin-facing notifications (fee-payment fan-out, the
+# off-route geofence alert fired on every GPS ping) are high volume and would
+# exhaust the daily email quota.
+NOTIFICATION_EMAILS_SKIP_STAFF = True
+
+# Link target in the email body. Overridden per environment.
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
+
 # ── Maps providers ──────────────────────────────────────────────────────────
 # Override these in deployment to use an institution-approved or self-hosted
 # OSRM/Nominatim-compatible service. The browser never receives these URLs.

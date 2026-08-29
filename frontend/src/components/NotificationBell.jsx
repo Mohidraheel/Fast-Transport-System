@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { colors, fonts, radius, shadow } from "../theme";
-import { getNotifications } from "../services/transportService";
+import {
+  getNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteNotification,
+  clearAllNotifications,
+} from "../services/transportService";
 
-const LAST_SEEN_KEY = "notifications_last_seen";
 const POLL_INTERVAL_MS = 15000;
 
 function timeAgo(dateString) {
@@ -18,13 +23,15 @@ function timeAgo(dateString) {
 function NotificationBell() {
   const [notifications, setNotifications] = useState([]);
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const containerRef = useRef(null);
 
-  const fetchNotifications = () => {
+  // The API is owner-scoped server-side, so whatever comes back already
+  // belongs to this user — no client-side username filtering needed.
+  const fetchNotifications = () =>
     getNotifications()
       .then((res) => setNotifications(res.data))
-      .catch(() => {}); // silent — bell just stays empty if this fails
-  };
+      .catch(() => {}); // silent — the bell just stays as-is if this fails
 
   useEffect(() => {
     fetchNotifications();
@@ -43,36 +50,73 @@ function NotificationBell() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  // Backend /api/notifications/ isn't scoped to the logged-in user (returns
-  // everyone's notifications), so filter to "mine" here using the username
-  // stored at login. Safe to keep even if the backend gets fixed later.
-  const currentUsername = localStorage.getItem("username");
-  const myNotifications = notifications.filter(
-    (n) => n.user?.username === currentUsername
+  const sorted = [...notifications].sort(
+    (a, b) => new Date(b.created_at) - new Date(a.created_at)
   );
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
 
-  const lastSeen = localStorage.getItem(LAST_SEEN_KEY);
-  const lastSeenDate = lastSeen ? new Date(lastSeen) : new Date(0);
-  const unreadCount = myNotifications.filter(
-    (n) => new Date(n.created_at) > lastSeenDate
-  ).length;
+  // ── Actions ───────────────────────────────────────────────────────────────
+  // Each updates local state optimistically so the dropdown feels instant,
+  // and falls back to server truth if the request fails.
 
-  const handleToggle = () => {
-    const next = !open;
-    setOpen(next);
-    if (next) {
-      // opening the dropdown marks everything currently loaded as "seen"
-      localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString());
+  const handleMarkRead = async (n) => {
+    if (n.is_read) return;
+    setNotifications((prev) =>
+      prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x))
+    );
+    try {
+      await markNotificationRead(n.id);
+    } catch {
+      fetchNotifications();
     }
   };
 
-  const sorted = [...myNotifications].sort(
-    (a, b) => new Date(b.created_at) - new Date(a.created_at)
-  );
+  const handleMarkAllRead = async () => {
+    if (unreadCount === 0 || busy) return;
+    setBusy(true);
+    setNotifications((prev) => prev.map((x) => ({ ...x, is_read: true })));
+    try {
+      await markAllNotificationsRead();
+    } catch {
+      fetchNotifications();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async (e, n) => {
+    e.stopPropagation(); // don't also trigger mark-as-read on the row
+    const previous = notifications;
+    setNotifications((prev) => prev.filter((x) => x.id !== n.id));
+    try {
+      await deleteNotification(n.id);
+    } catch {
+      setNotifications(previous);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (notifications.length === 0 || busy) return;
+    if (!window.confirm("Clear all notifications? This cannot be undone.")) return;
+    setBusy(true);
+    const previous = notifications;
+    setNotifications([]);
+    try {
+      await clearAllNotifications();
+    } catch {
+      setNotifications(previous);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
-      <button onClick={handleToggle} style={styles.bellBtn} aria-label="Notifications">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={styles.bellBtn}
+        aria-label="Notifications"
+      >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
           <path d="M13.73 21a2 2 0 0 1-3.46 0" />
@@ -84,20 +128,75 @@ function NotificationBell() {
 
       {open && (
         <div style={styles.dropdown}>
-          <div style={styles.dropdownHeader}>Notifications</div>
+          <div style={styles.dropdownHeader}>
+            <span style={styles.headerTitle}>
+              Notifications
+              {unreadCount > 0 && (
+                <span style={styles.headerCount}>{unreadCount} new</span>
+              )}
+            </span>
+            <div style={styles.headerActions}>
+              <button
+                onClick={handleMarkAllRead}
+                disabled={unreadCount === 0 || busy}
+                style={{
+                  ...styles.headerBtn,
+                  ...(unreadCount === 0 || busy ? styles.headerBtnDisabled : {}),
+                }}
+              >
+                Mark all read
+              </button>
+              <button
+                onClick={handleClearAll}
+                disabled={notifications.length === 0 || busy}
+                style={{
+                  ...styles.headerBtn,
+                  ...styles.headerBtnDanger,
+                  ...(notifications.length === 0 || busy
+                    ? styles.headerBtnDisabled
+                    : {}),
+                }}
+              >
+                Clear all
+              </button>
+            </div>
+          </div>
+
           <div style={styles.list}>
             {sorted.length === 0 && (
               <div style={styles.empty}>No notifications yet.</div>
             )}
-            {sorted.slice(0, 15).map((n) => (
+            {sorted.slice(0, 30).map((n) => (
               <div
                 key={n.id}
+                onClick={() => handleMarkRead(n)}
+                title={n.is_read ? "" : "Click to mark as read"}
                 style={{
                   ...styles.item,
-                  borderLeft: n.type === "alert" ? "3px solid #dc2626" : "3px solid transparent",
+                  background: n.is_read ? "#fff" : colors.accentGlow,
+                  borderLeft:
+                    n.type === "alert"
+                      ? "3px solid #dc2626"
+                      : n.is_read
+                        ? "3px solid transparent"
+                        : `3px solid ${colors.accent}`,
+                  cursor: n.is_read ? "default" : "pointer",
                 }}
               >
-                <div style={styles.itemTitle}>{n.title}</div>
+                <div style={styles.itemHead}>
+                  <div style={styles.itemTitle}>
+                    {!n.is_read && <span style={styles.unreadDot} />}
+                    {n.title}
+                  </div>
+                  <button
+                    onClick={(e) => handleDelete(e, n)}
+                    style={styles.dismissBtn}
+                    aria-label="Remove notification"
+                    title="Remove"
+                  >
+                    ×
+                  </button>
+                </div>
                 <div style={styles.itemMessage}>{n.message}</div>
                 <div style={styles.itemTime}>{timeAgo(n.created_at)}</div>
               </div>
@@ -143,7 +242,7 @@ const styles = {
     position: "absolute",
     top: "calc(100% + 8px)",
     right: 0,
-    width: "340px",
+    width: "360px",
     maxWidth: "90vw",
     background: "#fff",
     border: `1px solid ${colors.borderLight}`,
@@ -154,35 +253,108 @@ const styles = {
     fontFamily: fonts.body,
   },
   dropdownHeader: {
-    padding: "12px 16px",
+    padding: "11px 14px",
+    borderBottom: `1px solid ${colors.borderLight}`,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "8px",
+    flexWrap: "wrap",
+    background: colors.tableHeaderBg,
+  },
+  headerTitle: {
     fontWeight: "700",
     fontSize: "13px",
     color: colors.textPrimary,
-    borderBottom: `1px solid ${colors.borderLight}`,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "7px",
+  },
+  headerCount: {
+    background: colors.accent,
+    color: "#fff",
+    fontSize: "10px",
+    fontWeight: "700",
+    padding: "2px 7px",
+    borderRadius: "999px",
+    textTransform: "uppercase",
+    letterSpacing: "0.03em",
+  },
+  headerActions: {
+    display: "flex",
+    gap: "6px",
+  },
+  headerBtn: {
+    background: "transparent",
+    border: "none",
+    padding: "3px 6px",
+    fontSize: "11.5px",
+    fontWeight: "600",
+    color: colors.accent,
+    cursor: "pointer",
+    borderRadius: "6px",
+    fontFamily: fonts.body,
+  },
+  headerBtnDanger: {
+    color: colors.dangerText,
+  },
+  headerBtnDisabled: {
+    color: colors.textMuted,
+    cursor: "default",
   },
   list: {
-    maxHeight: "360px",
+    maxHeight: "380px",
     overflowY: "auto",
   },
   empty: {
-    padding: "20px 16px",
+    padding: "26px 16px",
     fontSize: "13px",
     color: colors.textMuted,
     textAlign: "center",
   },
   item: {
-    padding: "10px 14px",
+    padding: "10px 12px 10px 14px",
     borderBottom: `1px solid ${colors.borderLight}`,
+    transition: "background 0.12s",
+  },
+  itemHead: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "8px",
   },
   itemTitle: {
     fontSize: "13px",
     fontWeight: "600",
     color: colors.textPrimary,
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    lineHeight: 1.35,
+  },
+  unreadDot: {
+    width: "7px",
+    height: "7px",
+    borderRadius: "50%",
+    background: colors.accent,
+    flexShrink: 0,
+  },
+  dismissBtn: {
+    background: "transparent",
+    border: "none",
+    color: colors.textMuted,
+    fontSize: "17px",
+    lineHeight: 1,
+    padding: "0 2px",
+    cursor: "pointer",
+    flexShrink: 0,
+    fontFamily: fonts.body,
   },
   itemMessage: {
     fontSize: "12.5px",
     color: colors.textSecondary,
-    marginTop: "2px",
+    marginTop: "3px",
+    lineHeight: 1.5,
   },
   itemTime: {
     fontSize: "11px",

@@ -3,7 +3,21 @@ from django.dispatch import receiver
 from .models import Route, Stop, RouteStop, Bus, Driver, Semester, RouteAssignment, FeeVerification, SemesterRegistration, BusLocationPing, Notification, User
 from .seatallocation import allocate_seat_for_student
 from .geofencing import is_off_route
+from .emails import send_notification_email
 from django.utils import timezone
+
+
+@receiver(post_save, sender=Notification)
+def email_notification_to_user(sender, instance, created, **kwargs):
+    """
+    Mirror every newly created in-app notification to the recipient's inbox.
+
+    Hooking the model rather than each Notification.objects.create() call site
+    means all eight existing sites — and any added later — get email for free.
+    Delivery is threaded and fail-silent; see apps/transport/emails.py.
+    """
+    if created:
+        send_notification_email(instance)
 
 def _deactivate_assignments(**filter_kwargs):
     """Set is_active=False on all active RouteAssignments matching the filter."""

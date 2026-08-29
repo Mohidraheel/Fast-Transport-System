@@ -115,3 +115,11 @@ export const verifyPaymentOtp = (regId, otp) =>
 
 // ── Notifications ──
 export const getNotifications = () => api.get("/api/notifications/");
+export const markNotificationRead = (id) =>
+  api.post(`/api/notifications/${id}/mark-read/`);
+export const markAllNotificationsRead = () =>
+  api.post("/api/notifications/mark-all-read/");
+export const deleteNotification = (id) =>
+  api.delete(`/api/notifications/${id}/`);
+export const clearAllNotifications = () =>
+  api.delete("/api/notifications/clear-all/");
