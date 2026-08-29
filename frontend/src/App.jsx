@@ -32,7 +32,7 @@ import AdminRouteChangeRequests from "./pages/admin/AdminRouteChangeRequests";
 import AdminExportPage from "./pages/admin/AdminExport";
 import StudentIncidents from "./pages/student/StudentIncidents";
 import AdminIncidents from "./pages/admin/AdminIncidents";
-import AdminRouteDetail from "./pages/admin/AdminRouteDetail";
+import RouteBuilder from "./pages/admin/RouteBuilder";
 
 // Redirect /dashboard based on stored role
 function DashboardRedirect() {
@@ -82,6 +82,7 @@ function App() {
         <Route path="/student/transport" element={<StudentRoute><StudentTransport /></StudentRoute>} />
         <Route path="/student/complaints" element={<StudentRoute><StudentComplaints /></StudentRoute>} />
         <Route path="/student/routes" element={<StudentRoute><ViewRoutes /></StudentRoute>} />
+        <Route path="/student/routes-map" element={<StudentRoute><ViewRoutes /></StudentRoute>} />
         <Route path="/student/transport-registrations" element={<StudentRoute><TransportRegistration /></StudentRoute>} />
         <Route path="/student/challan" element={<StudentRoute><StudentChallanPage /></StudentRoute>} />
         <Route path="/student/challan/:id" element={<StudentRoute><ChallanPage /></StudentRoute>} />
@@ -95,7 +96,8 @@ function App() {
         <Route path="/admin/buses" element={<StaffRoute><BusesPage /></StaffRoute>} />
         <Route path="/admin/drivers" element={<StaffRoute><DriversPage /></StaffRoute>} />
         <Route path="/admin/routes" element={<StaffRoute><RoutesPage /></StaffRoute>} />
-        <Route path="/admin/routes/:id" element={<StaffRoute><AdminRouteDetail /></StaffRoute>} />
+        <Route path="/admin/routes/:id" element={<StaffRoute><RouteBuilder /></StaffRoute>} />
+        <Route path="/admin/routes/:id/builder" element={<StaffRoute><RouteBuilder /></StaffRoute>} />
         <Route path="/admin/assignments" element={<StaffRoute><AssignmentsPage /></StaffRoute>} />
         <Route path="/admin/complaints" element={<StaffRoute><AdminComplaintsPage /></StaffRoute>} />
         <Route path="/admin/stops" element={<StaffRoute><StopsPage /></StaffRoute>} />

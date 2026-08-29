@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import PageShell, { PageTitle } from "../../components/PageShell";
+import PageShell, { PageTitle, ContentCard } from "../../components/PageShell";
 import Table from "../../components/Table";
 import { ConfirmModal, FormModal, StatusBadge, FormCard, Field, SectionBlock, inputStyle } from "../../components/ui";
 import { btn, colors } from "../../theme";
-import { getRoutes, createRoute, updateRoute, deleteRoute } from "../../services/transportService";
+import RouteMap from "../../components/maps/RouteMap";
+import { getRoutes, createRoute, updateRoute, deleteRoute, getRoutesMap } from "../../services/transportService";
 
 const actionBtn = { ...btn.ghost, padding: "7px 12px", fontSize: "12px" };
 
@@ -16,17 +17,39 @@ const routeLinkStyle = {
   cursor: "pointer",
 };
 
+const routeButton = {
+  display: "grid",
+  textAlign: "left",
+  gap: 4,
+  border: "1px solid",
+  borderRadius: 8,
+  background: "#fff",
+  padding: "10px 12px",
+  cursor: "pointer",
+  color: colors.textPrimary,
+  fontSize: 13,
+};
+
 function RoutesPage() {
   const [routes, setRoutes] = useState([]);
   const [form, setForm] = useState({ name: "", description: "" });
   const [pendingToggle, setPendingToggle] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
-  const [editingRoute, setEditingRoute] = useState(null);
-  const [editForm, setEditForm] = useState({ name: "", description: "" });
-  const [savingEdit, setSavingEdit] = useState(false);
+  const [mapRoutes, setMapRoutes] = useState([]);
+  const [selectedRouteId, setSelectedRouteId] = useState(null);
 
   const fetchRoutes = () =>
     getRoutes().then((res) => setRoutes(res.data)).catch(() => alert("Failed to fetch routes."));
+
+  useEffect(() => {
+    getRoutesMap()
+      .then((res) => {
+        const nextRoutes = res.data?.routes || [];
+        setMapRoutes(nextRoutes);
+        setSelectedRouteId((current) => current ?? nextRoutes[0]?.id ?? null);
+      })
+      .catch(() => setMapRoutes([]));
+  }, []);
 
   const handleToggle = (id, currentValue) => {
     if (currentValue) setPendingToggle({ id, currentValue });
@@ -45,13 +68,6 @@ function RoutesPage() {
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
   useEffect(() => { fetchRoutes(); }, []);
 
-  const handleEditOpen = (route) => {
-    setEditingRoute(route);
-    setEditForm({ name: route.name || "", description: route.description || "" });
-  };
-
-  const handleEditChange = (e) => setEditForm({ ...editForm, [e.target.name]: e.target.value });
-
   const handleDelete = (route) => setPendingDelete(route);
 
   const confirmDelete = async () => {
@@ -61,21 +77,6 @@ function RoutesPage() {
       fetchRoutes();
     } catch (err) {
       alert(`Failed to delete route: ${JSON.stringify(err.response?.data || err.message)}`);
-    }
-  };
-
-  const handleEditSubmit = async (e) => {
-    e.preventDefault();
-    if (!editForm.name) { alert("Route name is required"); return; }
-    setSavingEdit(true);
-    try {
-      await updateRoute(editingRoute.id, editForm);
-      setEditingRoute(null);
-      fetchRoutes();
-    } catch (err) {
-      alert(`Failed to update route: ${JSON.stringify(err.response?.data || err.message)}`);
-    } finally {
-      setSavingEdit(false);
     }
   };
 
@@ -90,6 +91,11 @@ function RoutesPage() {
       alert(`Failed to add route: ${JSON.stringify(err.response?.data || err.message)}`);
     }
   };
+
+  const selectedRoute = useMemo(() =>
+    mapRoutes.find((route) => Number(route.id) === Number(selectedRouteId)) || mapRoutes[0] || null,
+    [mapRoutes, selectedRouteId]
+  );
 
   const columns = [
     {
@@ -111,7 +117,7 @@ function RoutesPage() {
       label: "Actions",
       render: (row) => (
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-          <button onClick={() => handleEditOpen(row)} style={actionBtn}>Edit</button>
+          <Link to={`/admin/routes/${row.id}`} style={{ ...actionBtn, textDecoration: "none" }}>View/Edit</Link>
           <button onClick={() => handleDelete(row)} style={{ ...btn.danger, padding: "7px 12px", fontSize: "12px" }}>Delete</button>
         </div>
       ),
@@ -140,26 +146,58 @@ function RoutesPage() {
         />
       )}
 
-      {editingRoute && (
-        <FormModal
-          title="Edit Route"
-          sub="Update the route details. Activation is managed separately."
-          submitLabel="Save Changes"
-          loading={savingEdit}
-          onClose={() => setEditingRoute(null)}
-          onSubmit={handleEditSubmit}
-          width="660px"
-        >
-          <Field label="Route Name" required flex="1 1 180px">
-            <input name="name" placeholder="e.g. Gulshan Route" value={editForm.name} onChange={handleEditChange} style={inputStyle} />
-          </Field>
-          <Field label="Description" flex="2 1 300px">
-            <input name="description" placeholder="Brief description" value={editForm.description} onChange={handleEditChange} style={inputStyle} />
-          </Field>
-        </FormModal>
-      )}
+      <PageTitle sub="Manage transport routes. Use the map to browse route coverage, then open a route for full administration.">Routes</PageTitle>
 
-      <PageTitle sub="Manage transport routes. Click a route name to see its bus, driver and registered students.">Routes</PageTitle>
+      <ContentCard style={{ marginBottom: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 320px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
+          <div>
+            <h3 style={{ margin: "0 0 10px", fontSize: 15 }}>Route network</h3>
+            <div style={{ display: "grid", gap: 8, maxHeight: 420, overflowY: "auto" }}>
+              {mapRoutes.length ? mapRoutes.map((route) => (
+                <button
+                  key={route.id}
+                  type="button"
+                  onClick={() => setSelectedRouteId(route.id)}
+                  style={{
+                    ...routeButton,
+                    borderColor: Number(selectedRouteId) === Number(route.id) ? colors.accent : colors.borderLight,
+                    background: Number(selectedRouteId) === Number(route.id) ? "#eff6ff" : "#fff",
+                  }}
+                >
+                  <strong>{route.name}</strong>
+                  <span>{route.stops?.length ?? 0} stop{(route.stops?.length ?? 0) === 1 ? "" : "s"}</span>
+                  <small style={{ color: colors.textMuted }}>{route.status || "published"}</small>
+                </button>
+              )) : <span style={{ color: colors.textMuted, fontSize: 13 }}>Map data is not available yet.</span>}
+            </div>
+          </div>
+          <div>
+            <RouteMap routes={mapRoutes} selectedRouteId={selectedRouteId} onRouteSelect={setSelectedRouteId} height={420} />
+            {selectedRoute && (
+              <div style={{ marginTop: 12, padding: "12px 14px", border: `1px solid ${colors.borderLight}`, borderRadius: 10, background: "#fff" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+                  <strong style={{ fontSize: 14 }}>{selectedRoute.name}</strong>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <Link to={`/admin/routes/${selectedRoute.id}`} style={routeLinkStyle}>View/Edit</Link>
+                  </div>
+                </div>
+                <p style={{ margin: 0, color: colors.textSecondary, fontSize: 13 }}>{selectedRoute.description || "No description provided."}</p>
+                <div style={{ marginTop: 10, display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12, color: colors.textSecondary }}>
+                  <span><strong>{selectedRoute.stops?.length ?? 0}</strong> stops</span>
+                  <span><strong>{selectedRoute.status || "published"}</strong> status</span>
+                  <span>{selectedRoute.is_active ? "Active" : "Inactive"}</span>
+                </div>
+                <div style={{ marginTop: 10, fontSize: 12, color: colors.textSecondary }}>
+                  {selectedRoute.stops?.slice(0, 6).map((stop, index) => (
+                    <div key={stop.route_stop_id || `${stop.id}-${index}`} style={{ marginTop: 4 }}>{index + 1}. {stop.name}</div>
+                  ))}
+                  {(selectedRoute.stops?.length ?? 0) > 6 && <div style={{ marginTop: 4 }}>…and {selectedRoute.stops.length - 6} more stops</div>}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </ContentCard>
 
       <FormCard title="Add New Route" onSubmit={handleSubmit} submitLabel="Add Route">
         <Field label="Route Name" required flex="1 1 160px">

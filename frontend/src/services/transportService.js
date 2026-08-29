@@ -21,10 +21,15 @@ export const updateDriver = (id, data) => api.patch(`/api/drivers/${id}/`, data)
 export const deleteDriver = (id) => api.delete(`/api/drivers/${id}/`);
 
 export const getRoutes = () => api.get("/api/routes/");
+export const getRoutesMap = () => api.get("/api/routes/map/");
 export const createRoute = (data) => api.post("/api/routes/", data);
 export const updateRoute = (id, data) => api.patch(`/api/routes/${id}/`, data);
 export const deleteRoute = (id) => api.delete(`/api/routes/${id}/`);
 export const getRouteOverview = (id) => api.get(`/api/routes/${id}/overview/`);
+export const getRouteMapDetail = (id) => api.get(`/api/routes/${id}/map-detail/`);
+export const saveRouteBuilder = (id, data) => api.patch(`/api/routes/${id}/builder/`, data);
+export const resolveMapLocation = (data) => api.post("/api/admin/maps/location/", data);
+export const previewRouteGeometry = (stopIds) => api.post("/api/admin/maps/route-preview/", { stop_ids: stopIds });
 
 export const getAssignments = () => api.get("/api/route-assignments/");
 export const createAssignment = (data) => api.post("/api/route-assignments/", data);
@@ -56,6 +61,8 @@ export const getDriverById = (id) => api.get(`/api/drivers/${id}/public_detail/`
 
 export const createRegistration = (data) => api.post("/api/transport-registrations/", data);
 export const getRegistration = () => api.get("/api/transport-registrations/");
+export const getEligibleRouteStops = (semesterId) =>
+  api.get(`/api/registration/eligible-route-stops/${semesterId ? `?semester=${semesterId}` : ""}`);
 export const updateRegistration = (id, data) => api.patch(`/api/transport-registrations/${id}/`, data);
 
 export const getChallan = (id) => api.get(`/api/transport-registrations/${id}/challan/`);

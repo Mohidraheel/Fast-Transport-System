@@ -11,9 +11,11 @@ from django.db import transaction
 from django.utils import timezone
 from django.core.mail import send_mail
 from django.conf import settings
+from django.core.cache import cache
 from datetime import timedelta
 import random
 import string as _string
+import hashlib
 from rest_framework.response import Response
 from rest_framework import viewsets,permissions
 from rest_framework.decorators import action
@@ -89,6 +91,124 @@ from .seatallocation import (
     allocate_seat_on_assignment,
     reassign_seat_on_assignment,
 )
+
+
+def _valid_karachi_coordinate(latitude, longitude):
+    """Keep admin map lookups constrained to the deployment's service area."""
+    return 24.4 <= latitude <= 25.4 and 66.5 <= longitude <= 67.8
+
+
+def _map_cache_key(prefix, value):
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return f"map:{prefix}:{digest}"
+
+
+@api_view(["POST"])
+@permission_classes([IsAdmin])
+def resolve_map_location(request):
+    """Rate-limited, cached admin-only forward and reverse geocoding proxy."""
+    action_name = request.data.get("action")
+    params = {"format": "jsonv2", "addressdetails": 1, "limit": 5}
+    if action_name == "search":
+        query = str(request.data.get("query", "")).strip()
+        if len(query) < 3 or len(query) > 160:
+            raise ValidationError({"query": "Enter between 3 and 160 characters."})
+        # Keep results local to Karachi; an admin can still set an exact pin.
+        params.update({"q": f"{query}, Karachi, Pakistan", "viewbox": "66.5,25.4,67.8,24.4", "bounded": 1})
+        cache_value = f"search:{query.lower()}"
+        endpoint = "/search"
+    elif action_name == "reverse":
+        try:
+            latitude = float(request.data["latitude"])
+            longitude = float(request.data["longitude"])
+        except (KeyError, TypeError, ValueError):
+            raise ValidationError("Latitude and longitude are required.")
+        if not _valid_karachi_coordinate(latitude, longitude):
+            raise ValidationError("Location must be within the Karachi service area.")
+        params.update({"lat": latitude, "lon": longitude, "zoom": 18})
+        cache_value = f"reverse:{latitude:.6f},{longitude:.6f}"
+        endpoint = "/reverse"
+    else:
+        raise ValidationError({"action": "Use 'search' or 'reverse'."})
+
+    cache_key = _map_cache_key("geocode", cache_value)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Response({"results": cached, "cached": True})
+
+    # Respect shared geocoder capacity even when several admins use the page.
+    if not cache.add("map:geocode:rate-lock", True, timeout=1):
+        return Response({"detail": "Please wait a moment before another location lookup."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+    try:
+        response = req_lib.get(
+            f"{settings.MAP_GEOCODING_URL}{endpoint}",
+            params=params,
+            headers={"User-Agent": settings.MAP_GEOCODING_USER_AGENT},
+            timeout=5,
+        )
+        response.raise_for_status()
+        raw_results = response.json()
+    except (req_lib.RequestException, ValueError):
+        return Response({"detail": "Location service is unavailable. Place the pin manually."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    if action_name == "reverse":
+        raw_results = [raw_results] if raw_results else []
+    results = [
+        {
+            "latitude": float(item["lat"]),
+            "longitude": float(item["lon"]),
+            "label": item.get("display_name", "Selected location"),
+            "provider_place_id": f"{item.get('osm_type', '')}:{item.get('osm_id', '')}",
+        }
+        for item in raw_results
+        if item.get("lat") is not None and item.get("lon") is not None
+    ]
+    cache.set(cache_key, results, timeout=60 * 60 * 24 * 30)
+    return Response({"results": results, "cached": False})
+
+
+@api_view(["POST"])
+@permission_classes([IsAdmin])
+def preview_route_geometry(request):
+    """Server-side road routing used by the admin route builder before save."""
+    stop_ids = request.data.get("stop_ids")
+    if not isinstance(stop_ids, list) or not 2 <= len(stop_ids) <= 60:
+        raise ValidationError({"stop_ids": "Provide between 2 and 60 ordered stop IDs."})
+    try:
+        normalized_ids = [int(stop_id) for stop_id in stop_ids]
+    except (TypeError, ValueError):
+        raise ValidationError({"stop_ids": "Stop IDs must be integers."})
+    if len(set(normalized_ids)) != len(normalized_ids):
+        raise ValidationError({"stop_ids": "A stop can only appear once."})
+
+    stops_by_id = Stop.objects.in_bulk(normalized_ids)
+    if len(stops_by_id) != len(normalized_ids) or any(not stops_by_id[stop_id].is_active for stop_id in normalized_ids):
+        raise ValidationError({"stop_ids": "One or more selected stops are unavailable."})
+    coordinates = [(float(stops_by_id[stop_id].longitude), float(stops_by_id[stop_id].latitude)) for stop_id in normalized_ids]
+    if any(lng == 0 and lat == 0 for lng, lat in coordinates):
+        raise ValidationError({"stop_ids": "Each selected stop needs a valid map location."})
+
+    geometry = {"type": "LineString", "coordinates": [[lng, lat] for lng, lat in coordinates]}
+    cache_key = _map_cache_key("route", ";".join(f"{lng:.6f},{lat:.6f}" for lng, lat in coordinates))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Response({"geometry": cached, "source": "cache"})
+    try:
+        coordinate_path = ";".join(f"{lng},{lat}" for lng, lat in coordinates)
+        response = req_lib.get(
+            f"{settings.MAP_ROUTING_URL}/route/v1/driving/{coordinate_path}",
+            params={"overview": "full", "geometries": "geojson"},
+            timeout=8,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        routed_geometry = payload.get("routes", [{}])[0].get("geometry")
+        if isinstance(routed_geometry, dict) and routed_geometry.get("type") == "LineString":
+            geometry = routed_geometry
+    except (req_lib.RequestException, ValueError, IndexError, AttributeError):
+        pass
+    cache.set(cache_key, geometry, timeout=60 * 60 * 24 * 7)
+    return Response({"geometry": geometry, "source": "provider" if len(geometry["coordinates"]) > len(coordinates) else "fallback"})
 # a view — auth question first, see below
 class BusLocationPingCreateView(generics.CreateAPIView):
     queryset = BusLocationPing.objects.all()
@@ -131,6 +251,97 @@ class RouteViewSet(viewsets.ModelViewSet):
     queryset = Route.objects.all()
     serializer_class = RouteSerializer
     permission_classes = [IsAdminOrReadOnly] # Admin full access, Students read only
+
+    def _map_route_data(self, route):
+        route_stops = list(
+            RouteStop.objects.filter(route=route, stop__is_active=True)
+            .select_related("stop")
+            .order_by("stop_order")
+        )
+        stops = [
+            {
+                "id": route_stop.stop_id,
+                "route_stop_id": route_stop.id,
+                "name": route_stop.stop.name,
+                "address": route_stop.stop.address,
+                "latitude": float(route_stop.stop.latitude),
+                "longitude": float(route_stop.stop.longitude),
+                "stop_order": route_stop.stop_order,
+                "morning_eta": str(route_stop.morning_eta) if route_stop.morning_eta else None,
+                "evening_eta": str(route_stop.evening_eta) if route_stop.evening_eta else None,
+            }
+            for route_stop in route_stops
+            if not (float(route_stop.stop.latitude) == 0 and float(route_stop.stop.longitude) == 0)
+        ]
+        fallback_geometry = [[stop["longitude"], stop["latitude"]] for stop in stops]
+        geometry = route.geometry if isinstance(route.geometry, dict) else None
+        if not geometry or geometry.get("type") != "LineString":
+            geometry = {"type": "LineString", "coordinates": fallback_geometry}
+        return {
+            "id": route.id,
+            "name": route.name,
+            "description": route.description,
+            "status": route.status,
+            "is_active": route.is_active,
+            "geometry": geometry,
+            "geometry_is_cached": bool(route.geometry),
+            "stops": stops,
+        }
+
+    @action(detail=False, methods=["get"], url_path="map")
+    def map(self, request):
+        """Compact network payload consumed by the student and admin map views."""
+        routes = Route.objects.filter(is_active=True, status="published")
+        return Response({"routes": [self._map_route_data(route) for route in routes]})
+
+    @action(detail=True, methods=["get"], url_path="map-detail")
+    def map_detail(self, request, pk=None):
+        return Response(self._map_route_data(self.get_object()))
+
+    @action(detail=True, methods=["patch"], url_path="builder", permission_classes=[IsAdmin])
+    def builder(self, request, pk=None):
+        """Atomically replace a route's ordered stops from the map route builder."""
+        route = self.get_object()
+        stops_payload = request.data.get("stops")
+        if not isinstance(stops_payload, list) or not stops_payload:
+            raise ValidationError({"stops": "Add at least one stop before saving the route."})
+
+        stop_ids = []
+        normalized = []
+        for index, item in enumerate(stops_payload, start=1):
+            try:
+                stop_id = int(item["stop_id"])
+            except (KeyError, TypeError, ValueError):
+                raise ValidationError({"stops": f"Stop #{index} is invalid."})
+            if stop_id in stop_ids:
+                raise ValidationError({"stops": "A stop can only appear once on a route."})
+            stop_ids.append(stop_id)
+            normalized.append({
+                "stop_id": stop_id,
+                "stop_order": index,
+                "morning_eta": item.get("morning_eta") or None,
+                "evening_eta": item.get("evening_eta") or None,
+            })
+
+        if Stop.objects.filter(id__in=stop_ids, is_active=True).count() != len(stop_ids):
+            raise ValidationError({"stops": "One or more selected stops are inactive or no longer exist."})
+
+        geometry = request.data.get("geometry")
+        if geometry is not None and (
+            not isinstance(geometry, dict) or geometry.get("type") != "LineString" or not isinstance(geometry.get("coordinates"), list)
+        ):
+            raise ValidationError({"geometry": "Geometry must be a GeoJSON LineString."})
+
+        with transaction.atomic():
+            RouteStop.objects.filter(route=route).delete()
+            RouteStop.objects.bulk_create([RouteStop(route=route, **item) for item in normalized])
+            route.geometry = geometry
+            route.geometry_updated_at = timezone.now() if geometry else None
+            if request.data.get("status") in {"draft", "published", "archived"}:
+                route.status = request.data["status"]
+            route.save(update_fields=["geometry", "geometry_updated_at", "status", "updated_at"])
+
+        return Response(self._map_route_data(route))
 
     @action(detail=True, methods=["get"])
     def details(self, request, pk=None):
@@ -330,6 +541,57 @@ class RouteStopViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrReadOnly] # Admin full access, Students read only
 
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def eligible_route_stops(request):
+    """Selectable route-stop pairs for the map-first registration flow."""
+    semester_id = request.query_params.get("semester")
+    semester = None
+    if semester_id:
+        semester = Semester.objects.filter(pk=semester_id).first()
+    else:
+        semester = Semester.objects.filter(is_active=True).first()
+
+    if not semester:
+        return Response({"detail": "No active semester found."}, status=status.HTTP_404_NOT_FOUND)
+    if not semester.is_active or not semester.registration_open:
+        return Response({"detail": "Registration is not open for this semester."}, status=status.HTTP_400_BAD_REQUEST)
+
+    active_assignment_routes = RouteAssignment.objects.filter(
+        semester=semester, is_active=True, route__is_active=True
+    ).values_list("route_id", flat=True)
+    route_stops = (
+        RouteStop.objects.filter(
+            route_id__in=active_assignment_routes,
+            route__status="published",
+            stop__is_active=True,
+        )
+        .select_related("route", "stop")
+        .order_by("route__name", "stop_order")
+    )
+    return Response({
+        "semester": {"id": semester.id, "name": semester.name},
+        "route_stops": [
+            {
+                "id": route_stop.id,
+                "route_id": route_stop.route_id,
+                "route_name": route_stop.route.name,
+                "route_description": route_stop.route.description,
+                "stop_id": route_stop.stop_id,
+                "stop_name": route_stop.stop.name,
+                "address": route_stop.stop.address,
+                "latitude": float(route_stop.stop.latitude),
+                "longitude": float(route_stop.stop.longitude),
+                "stop_order": route_stop.stop_order,
+                "morning_eta": str(route_stop.morning_eta) if route_stop.morning_eta else None,
+                "evening_eta": str(route_stop.evening_eta) if route_stop.evening_eta else None,
+            }
+            for route_stop in route_stops
+            if not (float(route_stop.stop.latitude) == 0 and float(route_stop.stop.longitude) == 0)
+        ],
+    })
+
+
 class BusViewSet(viewsets.ModelViewSet):
     queryset = Bus.objects.all()
     serializer_class = BusSerializer
@@ -441,10 +703,20 @@ class TransportRegistrationViewSet(viewsets.ModelViewSet):
 
         stop = serializer.validated_data["stop"]
         semester = serializer.validated_data["semester"]
-
-        route_stop = RouteStop.objects.filter(stop=stop).first()
-        if not route_stop:
+        route_stop = serializer.validated_data.pop("selected_route_stop", None)
+        if route_stop is None:
+            # Legacy clients can submit stop_id temporarily, but only when its
+            # route is unambiguous. New map clients always send route_stop_id.
+            route_stops = list(RouteStop.objects.filter(
+                stop=stop, route__is_active=True, route__status="published"
+            ).select_related("route"))
+            if len(route_stops) != 1:
+                raise ValidationError({"route_stop_id": "Select the route and stop together; this stop serves multiple routes."})
+            route_stop = route_stops[0]
+        if not route_stop.route.is_active or route_stop.route.status != "published":
             raise ValidationError("No route found for this stop")
+        if not semester.is_active or not semester.registration_open:
+            raise ValidationError({"semester_id": "Registration is not open for this semester."})
 
         fee = FeeVerification.objects.filter(
             student=profile,

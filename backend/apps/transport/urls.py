@@ -8,6 +8,8 @@ from .views import student_bus_tracking, live_bus_location
 from .views import create_payment_intent, confirm_stripe_payment, verify_payment_otp
 from .views import download_transport_card
 from .views import BusLocationPingCreateView, IncidentViewSet, approved_incidents
+from .views import eligible_route_stops
+from .views import resolve_map_location, preview_route_geometry
 router = DefaultRouter()
 
 # Existing ViewSets
@@ -54,4 +56,7 @@ urlpatterns = [
     path("download-transport-card/", download_transport_card, name="download-transport-card"),
     path("bus-location/ping/", BusLocationPingCreateView.as_view(), name="bus-location-ping"),
     path("incidents/approved/", approved_incidents, name="approved-incidents"),
+    path("registration/eligible-route-stops/", eligible_route_stops, name="eligible-route-stops"),
+    path("admin/maps/location/", resolve_map_location, name="resolve-map-location"),
+    path("admin/maps/route-preview/", preview_route_geometry, name="preview-route-geometry"),
 ] + router.urls  # Router LAST

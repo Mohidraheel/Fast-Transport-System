@@ -97,6 +97,13 @@ EMAIL_HOST_USER    = 'a8d609001@smtp-brevo.com'
 EMAIL_HOST_PASSWORD = os.environ['EMAIL_HOST_PASSWORD']
 DEFAULT_FROM_EMAIL = 'FAST-Transport <hassannafees.4017@gmail.com>'
 
+# ── Maps providers ──────────────────────────────────────────────────────────
+# Override these in deployment to use an institution-approved or self-hosted
+# OSRM/Nominatim-compatible service. The browser never receives these URLs.
+MAP_ROUTING_URL = os.environ.get('MAP_ROUTING_URL', 'https://router.project-osrm.org').rstrip('/')
+MAP_GEOCODING_URL = os.environ.get('MAP_GEOCODING_URL', 'https://nominatim.openstreetmap.org').rstrip('/')
+MAP_GEOCODING_USER_AGENT = os.environ.get('MAP_GEOCODING_USER_AGENT', 'FAST-Transport/1.0')
+
 # ── CORS ──────────────────────────────────────────────────────────────────────
 # Set in dev.py / prod.py — never allow all in base.
 CORS_ALLOW_ALL_ORIGINS = False

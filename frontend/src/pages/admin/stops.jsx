@@ -4,6 +4,7 @@ import Table from "../../components/Table";
 import { ConfirmModal, FormModal, FormCard, Field, inputStyle } from "../../components/ui";
 import { btn } from "../../theme";
 import { getStops, createStop, updateStop, deleteStop } from "../../services/transportService";
+import StopLocationPicker from "../../components/maps/StopLocationPicker";
 
 const actionBtn = { ...btn.ghost, padding: "7px 12px", fontSize: "12px" };
 
@@ -22,7 +23,17 @@ function StopsPage() {
 
   useEffect(() => { fetchStops(); }, []);
 
+  const clampCoordinate = (name, value) => {
+    if (value === "" || value === null || value === undefined) return "";
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return "";
+
+    if (name === "latitude") return String(Math.max(-90, Math.min(90, numeric)));
+    return String(Math.max(-180, Math.min(180, numeric)));
+  };
+
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
+  const setFormLocation = (location) => setForm((current) => ({ ...current, ...location }));
 
   const handleEditOpen = (stop) => {
     setEditingStop(stop);
@@ -34,7 +45,15 @@ function StopsPage() {
     });
   };
 
-  const handleEditChange = (e) => setEditForm({ ...editForm, [e.target.name]: e.target.value });
+  const handleEditChange = (e) => {
+    const { name, value } = e.target;
+    if (name === "latitude" || name === "longitude") {
+      setEditForm((current) => ({ ...current, [name]: clampCoordinate(name, value) }));
+      return;
+    }
+    setEditForm({ ...editForm, [name]: value });
+  };
+  const setEditLocation = (location) => setEditForm((current) => ({ ...current, ...location }));
 
   const handleDelete = (stop) => setPendingDelete(stop);
 
@@ -51,6 +70,9 @@ function StopsPage() {
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     if (!editForm.name) { alert("Stop name is required"); return; }
+    if (!Number.isFinite(Number(editForm.latitude)) || !Number.isFinite(Number(editForm.longitude)) || (Number(editForm.latitude) === 0 && Number(editForm.longitude) === 0)) {
+      alert("Choose a valid stop location on the map."); return;
+    }
     setSavingEdit(true);
     try {
       const payload = Object.fromEntries(Object.entries(editForm).filter(([, v]) => v !== ""));
@@ -69,8 +91,17 @@ function StopsPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.name) { alert("Stop name is required"); return; }
+
+    const latitude = Number(form.latitude);
+    const longitude = Number(form.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude === 0 && longitude === 0) {
+      alert("Choose a valid stop location on the map."); return;
+    }
+
     try {
       const payload = Object.fromEntries(Object.entries(form).filter(([, v]) => v !== ""));
+      payload.latitude = Number(clampCoordinate("latitude", payload.latitude));
+      payload.longitude = Number(clampCoordinate("longitude", payload.longitude));
       await createStop(payload);
       setForm({ name: "", latitude: "", longitude: "", address: "" });
       fetchStops();
@@ -122,30 +153,36 @@ function StopsPage() {
           <Field label="Stop Name" required flex="1 1 180px">
             <input name="name" placeholder="e.g. Gulshan Chowrangi" value={editForm.name} onChange={handleEditChange} style={inputStyle} />
           </Field>
-          <Field label="Latitude" flex="0 1 140px">
+          <Field label="Latitude" required flex="0 1 140px">
             <input name="latitude" type="number" step="0.000001" placeholder="24.9215" value={editForm.latitude} onChange={handleEditChange} style={inputStyle} />
           </Field>
-          <Field label="Longitude" flex="0 1 140px">
+          <Field label="Longitude" required flex="0 1 140px">
             <input name="longitude" type="number" step="0.000001" placeholder="67.0847" value={editForm.longitude} onChange={handleEditChange} style={inputStyle} />
           </Field>
           <Field label="Address" flex="2 1 280px">
             <input name="address" placeholder="Full address" value={editForm.address} onChange={handleEditChange} style={inputStyle} />
           </Field>
+          <div style={{ flex: "1 1 100%" }}>
+            <StopLocationPicker latitude={editForm.latitude} longitude={editForm.longitude} onChange={setEditLocation} height={250} />
+          </div>
         </FormModal>
       )}
       <FormCard title="Add New Stop" onSubmit={handleSubmit} submitLabel="Add Stop">
         <Field label="Stop Name" required flex="1 1 160px">
           <input name="name" placeholder="e.g. Gulshan Chowrangi" value={form.name} onChange={handleChange} style={inputStyle} />
         </Field>
-        <Field label="Latitude" flex="0 1 130px">
+        <Field label="Latitude" required flex="0 1 130px">
           <input name="latitude" type="number" step="0.000001" placeholder="24.9215" value={form.latitude} onChange={handleChange} style={inputStyle} />
         </Field>
-        <Field label="Longitude" flex="0 1 130px">
+        <Field label="Longitude" required flex="0 1 130px">
           <input name="longitude" type="number" step="0.000001" placeholder="67.0847" value={form.longitude} onChange={handleChange} style={inputStyle} />
         </Field>
         <Field label="Address" flex="2 1 280px">
           <input name="address" placeholder="Full address" value={form.address} onChange={handleChange} style={inputStyle} />
         </Field>
+        <div style={{ flex: "1 1 100%" }}>
+          <StopLocationPicker latitude={form.latitude} longitude={form.longitude} onChange={setFormLocation} height={260} />
+        </div>
       </FormCard>
       <Table columns={columns} rows={stops} />
     </PageShell>

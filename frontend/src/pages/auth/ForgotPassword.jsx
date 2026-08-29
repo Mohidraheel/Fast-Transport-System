@@ -46,7 +46,7 @@ function ForgotPassword() {
             </svg>
           </div>
           <div>
-            <p style={styles.brandSub}>FAST NUCES</p>
+            <p style={styles.brandSub}>Fleetcentric.ai</p>
             <h1 style={styles.brandName}>Transport Portal</h1>
           </div>
         </div>

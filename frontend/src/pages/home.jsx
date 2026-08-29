@@ -28,7 +28,7 @@ function Home() {
         </div>
 
         {/* Eyebrow */}
-        <p style={styles.eyebrow}>FAST NUCES · Karachi Campus</p>
+        <p style={styles.eyebrow}>Fleetcentric.ai</p>
 
         {/* Headline */}
         <h1 style={styles.headline}>

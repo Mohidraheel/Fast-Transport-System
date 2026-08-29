@@ -152,8 +152,6 @@ const adminGroups = [
       { to: "/admin/buses",                   label: "Buses",               icon: "bus"        },
       { to: "/admin/drivers",                 label: "Drivers",             icon: "driver"     },
       { to: "/admin/routes",                  label: "Routes",              icon: "route"      },
-      { to: "/admin/stops",                   label: "Stops",               icon: "stop"       },
-      { to: "/admin/routestop",               label: "Route Stops",         icon: "routeStop"  },
       { to: "/admin/assignments",             label: "Assignments",         icon: "assignment" },
     ],
   },
@@ -184,7 +182,7 @@ const studentGroups = [
   {
     label: "Routes & Map",
     links: [
-      { to: "/student/routes",                  label: "View Routes",       icon: "viewRoute"  },
+      { to: "/student/routes",                  label: "Routes",            icon: "map"        },
       { to: "/student/route-change",            label: "Route Change",      icon: "routeChange"},
       { to: "/student/incidents",               label: "Report Incident",   icon: "incident"   },
       { to: "/student/map",                     label: "Live Bus Map",      icon: "map"        },
@@ -272,7 +270,7 @@ function SidebarContent({ groups, role, handleLogout, isMobile, onClose }) {
           </svg>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={styles.brandSub}>FAST NUCES</p>
+          <p style={styles.brandSub}>Fleetcentric.ai</p>
           <p style={styles.brandName}>Transport</p>
         </div>
 

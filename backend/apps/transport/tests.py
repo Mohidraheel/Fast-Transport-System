@@ -1,8 +1,10 @@
 from django.contrib.auth.models import AnonymousUser, User
+from django.core.management import call_command
+from django.db import connection
 from django.test import TestCase
 from rest_framework.test import APIRequestFactory
 from rest_framework.test import APIClient
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from .permissions import IsAdmin, IsAdminOrReadOnly, IsStudent, IsStudentCreateOnly
 from .serializers import RouteAssignmentSerializer
@@ -255,6 +257,106 @@ class PermissionRulesTests(TestCase):
 		self.assertTrue(perm.has_permission(self._req("get", self.admin), None))
 		self.assertTrue(perm.has_permission(self._req("post", self.admin), None))
 		self.assertTrue(perm.has_permission(self._req("patch", self.admin), None))
+
+
+class MapRouteApiTests(TestCase):
+	def setUp(self):
+		self.client = APIClient()
+		self.admin = User.objects.create_user(username="map_admin", password="pass", is_staff=True)
+		self.student = User.objects.create_user(username="map_student", password="pass")
+		self.profile = StudentProfile.objects.create(
+			user=self.student, roll_number="MAP-001", department="CS", batch="26", phone="0", address="Karachi"
+		)
+		self.semester = Semester.objects.create(name="Map Semester", year=2026, term="F", is_active=True, registration_open=True)
+		self.route = Route.objects.create(name="Map Route")
+		self.other_route = Route.objects.create(name="Other Map Route")
+		self.stop = Stop.objects.create(name="Mapped Stop", latitude="24.921500", longitude="67.084700")
+		self.other_stop = Stop.objects.create(name="Second Stop", latitude="24.931500", longitude="67.094700")
+		self.route_stop = RouteStop.objects.create(route=self.route, stop=self.stop, stop_order=1)
+		self.other_route_stop = RouteStop.objects.create(route=self.other_route, stop=self.stop, stop_order=1)
+		RouteAssignment.objects.create(
+			route=self.route, bus=Bus.objects.create(bus_number="MAP-1", capacity=10),
+			driver=Driver.objects.create(name="Map Driver"), semester=self.semester
+		)
+
+	def test_route_map_returns_geojson_fallback_for_valid_stops(self):
+		self.client.force_authenticate(user=self.student)
+		response = self.client.get("/api/routes/map/")
+		self.assertEqual(response.status_code, 200)
+		route = next(item for item in response.data["routes"] if item["id"] == self.route.id)
+		self.assertEqual(route["geometry"]["type"], "LineString")
+		self.assertEqual(route["stops"][0]["route_stop_id"], self.route_stop.id)
+
+	def test_registration_uses_explicit_route_stop_when_stop_is_shared(self):
+		self.client.force_authenticate(user=self.student)
+		response = self.client.post(
+			"/api/transport-registrations/",
+			{"semester_id": self.semester.id, "route_stop_id": self.other_route_stop.id},
+			format="json",
+		)
+		self.assertEqual(response.status_code, 201, response.data)
+		registration = TransportRegistration.objects.get(student=self.profile, semester=self.semester)
+		self.assertEqual(registration.route_id, self.other_route.id)
+
+	def test_admin_builder_replaces_ordered_stops_atomically(self):
+		self.client.force_authenticate(user=self.admin)
+		response = self.client.patch(
+			f"/api/routes/{self.route.id}/builder/",
+			{
+				"stops": [
+					{"stop_id": self.stop.id, "morning_eta": "06:30"},
+					{"stop_id": self.other_stop.id, "morning_eta": "06:45"},
+				],
+				"geometry": {"type": "LineString", "coordinates": [[67.0847, 24.9215], [67.0947, 24.9315]]},
+			},
+			format="json",
+		)
+		self.assertEqual(response.status_code, 200, response.data)
+		self.assertEqual(list(RouteStop.objects.filter(route=self.route).values_list("stop_id", flat=True)), [self.stop.id, self.other_stop.id])
+
+	@patch("apps.transport.views.req_lib.get")
+	def test_admin_location_search_proxies_and_normalizes_results(self, mock_get):
+		mock_response = Mock()
+		mock_response.json.return_value = [{
+			"lat": "24.9215", "lon": "67.0847", "display_name": "FAST NUCES, Karachi",
+			"osm_type": "node", "osm_id": 123,
+		}]
+		mock_get.return_value = mock_response
+		self.client.force_authenticate(user=self.admin)
+		response = self.client.post("/api/admin/maps/location/", {"action": "search", "query": "FAST NUCES"}, format="json")
+		self.assertEqual(response.status_code, 200, response.data)
+		self.assertEqual(response.data["results"][0]["label"], "FAST NUCES, Karachi")
+		self.assertEqual(response.data["results"][0]["provider_place_id"], "node:123")
+
+	@patch("apps.transport.views.req_lib.get")
+	def test_admin_route_preview_returns_provider_geometry(self, mock_get):
+		mock_response = Mock()
+		mock_response.json.return_value = {"routes": [{"geometry": {"type": "LineString", "coordinates": [[67.0847, 24.9215], [67.09, 24.93], [67.0947, 24.9315]]}}]}
+		mock_get.return_value = mock_response
+		self.client.force_authenticate(user=self.admin)
+		response = self.client.post("/api/admin/maps/route-preview/", {"stop_ids": [self.stop.id, self.other_stop.id]}, format="json")
+		self.assertEqual(response.status_code, 200, response.data)
+		self.assertEqual(response.data["geometry"]["coordinates"], [[67.0847, 24.9215], [67.09, 24.93], [67.0947, 24.9315]])
+
+
+class RouteStopCleanupCommandTests(TestCase):
+	def test_cleanup_route_stops_removes_duplicates_and_reindexes_order(self):
+		route = Route.objects.create(name="Cleanup Route")
+		stop_a = Stop.objects.create(name="Stop A", latitude="24.921500", longitude="67.084700")
+		stop_b = Stop.objects.create(name="Stop B", latitude="24.931500", longitude="67.094700")
+		with connection.cursor() as cursor:
+			cursor.execute("ALTER TABLE transport_routestop DROP CONSTRAINT IF EXISTS unique_stop_per_route")
+			cursor.execute("ALTER TABLE transport_routestop DROP CONSTRAINT IF EXISTS unique_stop_order_per_route")
+			cursor.execute(
+				"INSERT INTO transport_routestop (route_id, stop_id, stop_order, morning_eta, evening_eta) VALUES (%s, %s, %s, NULL, NULL), (%s, %s, %s, NULL, NULL), (%s, %s, %s, NULL, NULL), (%s, %s, %s, NULL, NULL)",
+				(route.id, stop_a.id, 1, route.id, stop_a.id, 1, route.id, stop_b.id, 2, route.id, stop_b.id, 2)
+			)
+
+		call_command("cleanup_route_stops")
+
+		self.assertEqual(route.routestop_set.count(), 2)
+		self.assertEqual(list(route.routestop_set.values_list("stop_id", flat=True)), [stop_a.id, stop_b.id])
+		self.assertEqual(list(route.routestop_set.order_by("stop_order").values_list("stop_order", flat=True)), [1, 2])
 
 
 class SeatAllocationServiceTests(TestCase):

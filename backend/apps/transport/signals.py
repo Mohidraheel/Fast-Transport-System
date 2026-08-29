@@ -1,6 +1,6 @@
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
-from .models import Route, Bus, Driver, Semester, RouteAssignment, FeeVerification, SemesterRegistration, BusLocationPing, Notification, User
+from .models import Route, Stop, RouteStop, Bus, Driver, Semester, RouteAssignment, FeeVerification, SemesterRegistration, BusLocationPing, Notification, User
 from .seatallocation import allocate_seat_for_student
 from .geofencing import is_off_route
 from django.utils import timezone
@@ -32,6 +32,25 @@ def deactivate_on_driver_unavailable(sender, instance, **kwargs):
 def deactivate_on_semester_inactive(sender, instance, **kwargs):
     if not instance.is_active:
         _deactivate_assignments(semester=instance)
+
+
+@receiver(post_save, sender=Stop)
+def invalidate_geometry_after_stop_change(sender, instance, created, **kwargs):
+    """A moved/disabled stop invalidates every cached road line that uses it."""
+    if not created:
+        Route.objects.filter(routestop__stop=instance).update(
+            geometry=None,
+            geometry_updated_at=None,
+        )
+
+
+@receiver(post_save, sender=RouteStop)
+@receiver(post_delete, sender=RouteStop)
+def invalidate_geometry_after_route_stop_change(sender, instance, **kwargs):
+    Route.objects.filter(pk=instance.route_id).update(
+        geometry=None,
+        geometry_updated_at=None,
+    )
 
 @receiver(post_save, sender=FeeVerification)
 def handle_fee_verification(sender, instance, created, **kwargs):
@@ -74,4 +93,4 @@ def check_bus_geofence(sender, instance, created, **kwargs):
         bus.save(update_fields=["is_off_route", "last_off_route_alert_at"])
     elif not off_route and bus.is_off_route:
         bus.is_off_route = False
-        bus.save(update_fields=["is_off_route"])        
+        bus.save(update_fields=["is_off_route"])

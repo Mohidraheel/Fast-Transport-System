@@ -7,7 +7,7 @@ import NotificationBell from "./NotificationBell";
 //   title         – page title string
 //   isMobile      – boolean (injected by PageShell)
 //   onMenuToggle  – callback to open the sidebar drawer on mobile
-function Navbar({ title = "FAST Transport", isMobile = false, onMenuToggle }) {
+function Navbar({ title = "Fleetcentric.ai", isMobile = false, onMenuToggle }) {
   const navigate = useNavigate();
 
   const isStaff  = localStorage.getItem("is_staff") === "true";
@@ -41,7 +41,7 @@ function Navbar({ title = "FAST Transport", isMobile = false, onMenuToggle }) {
         <div style={styles.titleWrap}>
           {/* Hide eyebrow on mobile to save space */}
           {!isMobile && (
-            <p style={styles.eyebrow}>FAST NUCES · Transport</p>
+            <p style={styles.eyebrow}>Fleetcentric.ai</p>
           )}
           <h1 style={isMobile ? styles.titleMobile : styles.title}>{title}</h1>
         </div>

@@ -4,7 +4,8 @@ import PageShell, { PageTitle, ContentCard } from "../../components/PageShell";
 import Table from "../../components/Table";
 import { SectionBlock, Pill, Spinner, Banner, DetailRow, inputStyle, selectStyle } from "../../components/ui";
 import { btn, colors, fonts } from "../../theme";
-import { getRouteOverview } from "../../services/transportService";
+import RouteMap from "../../components/maps/RouteMap";
+import { getRouteOverview, getRouteMapDetail } from "../../services/transportService";
 
 // Maps a TransportRegistration status onto one of the theme's badge variants.
 const statusVariant = (status) => {
@@ -22,6 +23,7 @@ const statusLabel = (status) =>
 function AdminRouteDetail() {
   const { id } = useParams();
   const [data, setData] = useState(null);
+  const [routeMap, setRouteMap] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -30,8 +32,17 @@ function AdminRouteDetail() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    getRouteOverview(id)
-      .then((res) => { if (!cancelled) { setData(res.data); setError(""); } })
+    Promise.all([
+      getRouteOverview(id),
+      getRouteMapDetail(id),
+    ])
+      .then(([overviewRes, mapRes]) => {
+        if (!cancelled) {
+          setData(overviewRes.data);
+          setRouteMap(mapRes.data || null);
+          setError("");
+        }
+      })
       .catch((err) => {
         if (!cancelled) {
           setError(
@@ -211,6 +222,22 @@ function AdminRouteDetail() {
           </Link>
         </Banner>
       )}
+
+      <ContentCard style={{ marginBottom: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <h3 style={cardHeading}>Route Map</h3>
+            <span style={{ color: colors.textSecondary, fontSize: 12 }}>
+              {routeMap?.stops?.length ?? 0} stops on the route
+            </span>
+          </div>
+          <RouteMap
+            routes={routeMap ? [routeMap] : []}
+            selectedRouteId={Number(route.id)}
+            height={320}
+          />
+        </div>
+      </ContentCard>
 
       {/* ── Stops ─────────────────────────────────────────────────────────── */}
       <SectionBlock title="Stops" sub="Ordered by pickup sequence.">

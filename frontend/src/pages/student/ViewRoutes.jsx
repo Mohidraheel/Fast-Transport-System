@@ -1,193 +1,117 @@
-import { useEffect, useState } from "react";
-import PageShell, { PageTitle } from "../../components/PageShell";
-import { getRouteStops, getDriverById } from "../../services/transportService";
-import { colors, fonts, radius } from "../../theme";
-import { useBreakpoint } from "../../utils/useBreakpoint";
+import { useEffect, useMemo, useState } from "react";
+import PageShell, { PageTitle, ContentCard } from "../../components/PageShell";
+import { Banner, Spinner } from "../../components/ui";
+import { colors } from "../../theme";
+import RouteMap from "../../components/maps/RouteMap";
+import { getRoutesMap } from "../../services/transportService";
 
 function ViewRoutes() {
-  const [routeStops, setRouteStops] = useState([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedDriver, setSelectedDriver] = useState(null);
-  const [driverLoading, setDriverLoading] = useState(false);
-  const isMobile = useBreakpoint(768);
+  const [routes, setRoutes] = useState([]);
+  const [selectedRouteId, setSelectedRouteId] = useState(null);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        const res = await getRouteStops();
-        setRouteStops(res.data);
-      } catch (err) {
-        alert("Failed to load routes");
-      }
-    };
-    loadData();
+    getRoutesMap()
+      .then((response) => {
+        const nextRoutes = response.data?.routes || [];
+        setRoutes(nextRoutes);
+        setSelectedRouteId(nextRoutes[0]?.id ?? null);
+      })
+      .catch(() => setError("Routes could not be loaded. Please try again."))
+      .finally(() => setLoading(false));
   }, []);
 
-  // ── Fetch driver details on badge click ──
-  const handleDriverClick = async (driverId, driverName) => {
-    if (!driverId) return;
-    setSelectedDriver({ name: driverName, loading: true });
-    setDriverLoading(true);
-    try {
-      const res = await getDriverById(driverId);
-      setSelectedDriver(res.data);
-    } catch (err) {
-      setSelectedDriver({ name: driverName, error: "Could not load driver details." });
-    } finally {
-      setDriverLoading(false);
-    }
-  };
-
-  // ── Group by route ──
-  const groupedRoutes = routeStops.reduce((acc, rs) => {
-    if (!acc[rs.route_name]) acc[rs.route_name] = [];
-    acc[rs.route_name].push(rs);
-    return acc;
-  }, {});
-
-  // ── Filter ──
-  const query = searchQuery.toLowerCase().trim();
-  const filteredRoutes = Object.keys(groupedRoutes).reduce((acc, routeName) => {
-    const stops = groupedRoutes[routeName];
-    const busNumber = stops.find((s) => s.bus_number)?.bus_number || "";
-    const driverName = stops.find((s) => s.driver_name)?.driver_name || "";
-    const routeMatches =
-      busNumber.toLowerCase().includes(query) ||
-      driverName.toLowerCase().includes(query) ||
-      routeName.toLowerCase().includes(query);
-    const matchingStops = stops.filter((s) =>
-      s.stop_name?.toLowerCase().includes(query)
+  const visibleRoutes = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return routes;
+    return routes.filter((route) =>
+      [route.name, route.description, ...(route.stops || []).flatMap((stop) => [stop.name, stop.address])]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query))
     );
-    if (routeMatches) acc[routeName] = stops;
-    else if (matchingStops.length > 0) acc[routeName] = matchingStops;
-    return acc;
-  }, {});
+  }, [routes, search]);
 
-  const displayRoutes = query ? filteredRoutes : groupedRoutes;
+  const selectedRoute = visibleRoutes.find((route) => Number(route.id) === Number(selectedRouteId)) || visibleRoutes[0] || null;
 
   return (
-    <PageShell role="student" title="View Routes">
+    <PageShell role="student" title="Routes">
+      <PageTitle sub="Browse the route map and the stop list in one organized view.">Routes</PageTitle>
 
-      {/* ── Top bar ── */}
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        flexWrap: "wrap", gap: "12px", marginBottom: "16px",
-      }}>
-        <PageTitle sub="Browse all active routes, stops, and drivers.">Available Routes</PageTitle>
-        <div style={{
-          display: "flex", alignItems: "center",
-          border: `1px solid ${colors.borderMid}`, borderRadius: radius.md,
-          padding: "6px 12px", background: "#fff", gap: "8px",
-          width: isMobile ? "100%" : "320px", maxWidth: "100%",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.06)", boxSizing: "border-box",
-        }}>
-          <input
-            type="text"
-            placeholder="Search by stop, bus or driver..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ border: "none", outline: "none", fontSize: "14px", flex: 1, background: "transparent", color: colors.textPrimary }}
-          />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery("")} style={{ background: "none", border: "none", cursor: "pointer", color: colors.textMuted, fontSize: "13px" }}>✕</button>
-          )}
-        </div>
-      </div>
+      {error && <Banner variant="danger">{error}</Banner>}
+      {loading && <Spinner />}
+      {!loading && !routes.length && !error && <Banner variant="info">No published routes are available yet.</Banner>}
 
-      {query && (
-        <p style={{ fontSize: "13px", color: colors.textSecondary, marginBottom: "12px" }}>
-          {Object.keys(displayRoutes).length === 0
-            ? "No results found."
-            : `Showing ${Object.keys(displayRoutes).length} route(s) matching "${searchQuery}"`}
-        </p>
-      )}
+      {!loading && !!routes.length && (
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(260px, 340px) minmax(0, 1fr)", gap: 18, alignItems: "start" }}>
+          <ContentCard style={{ marginBottom: 0, padding: 14 }}>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 12, color: colors.textSecondary, marginBottom: 6 }}>Search routes or stops</label>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by route, stop, or area…"
+                style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${colors.borderMid}`, borderRadius: 8, padding: "10px 12px", fontSize: 14 }}
+              />
+            </div>
 
-      {/* ── Route cards ── */}
-      {Object.keys(displayRoutes).map((routeName) => {
-        const stops = displayRoutes[routeName];
-        const busNumber = stops.find((s) => s.bus_number)?.bus_number || "-";
-        const driverName = stops.find((s) => s.driver_name)?.driver_name || "-";
-        const driverId = stops.find((s) => s.driver_id)?.driver_id || null;
-
-        return (
-          <div key={routeName} style={{
-            marginBottom: "20px", padding: isMobile ? "14px" : "16px",
-            border: `1px solid ${colors.borderLight}`, borderRadius: radius.lg,
-            background: "#fff", boxShadow: "0 1px 3px rgba(11,45,66,0.06)",
-          }}>
-            <div style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              flexWrap: "wrap", gap: "8px",
-            }}>
-              <h3 style={{ margin: 0, fontSize: "15px", fontWeight: "700", color: colors.textPrimary, fontFamily: fonts.heading }}>{routeName}</h3>
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                <span style={badgeStyle}>{busNumber}</span>
-                <span
-                  style={{ ...badgeStyle, cursor: "pointer", textDecoration: "underline dotted" }}
-                  onClick={() => handleDriverClick(driverId, driverName)}
-                  title="Click to view driver details"
+            <div style={{ display: "grid", gap: 10, maxHeight: 520, overflowY: "auto" }}>
+              {visibleRoutes.length ? visibleRoutes.map((route) => (
+                <button
+                  key={route.id}
+                  type="button"
+                  onClick={() => setSelectedRouteId(route.id)}
+                  style={{
+                    display: "grid",
+                    gap: 4,
+                    textAlign: "left",
+                    border: `1px solid ${Number(selectedRoute?.id) === Number(route.id) ? colors.accent : colors.borderLight}`,
+                    borderRadius: 10,
+                    background: Number(selectedRoute?.id) === Number(route.id) ? "#eef6ff" : "#fff",
+                    padding: "12px 14px",
+                    cursor: "pointer",
+                    color: colors.textPrimary,
+                  }}
                 >
-                  Driver: {driverName}
-                </span>
-              </div>
+                  <strong style={{ fontSize: 14 }}>{route.name}</strong>
+                  <span style={{ fontSize: 12, color: colors.textSecondary }}>{route.stops?.length ?? 0} stop{(route.stops?.length ?? 0) === 1 ? "" : "s"}</span>
+                  <small style={{ fontSize: 11, color: colors.textMuted }}>{route.description || "No description available."}</small>
+                </button>
+              )) : <span style={{ color: colors.textMuted, fontSize: 13, padding: "8px 4px" }}>No routes match your search.</span>}
             </div>
+          </ContentCard>
 
-            {/* Table with horizontal scroll on mobile */}
-            <div style={{ overflowX: "auto", marginTop: "12px" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "360px" }}>
-                <thead>
-                  <tr style={{ background: colors.tableHeaderBg }}>
-                    <th style={thStyle}>Stop</th>
-                    <th style={thStyle}>Order</th>
-                    <th style={thStyle}>Morning ETA</th>
-                    <th style={thStyle}>Evening ETA</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {stops.map((s, idx) => (
-                    <tr
-                      key={s.id || idx}
-                      style={{
-                        borderBottom: `1px solid ${colors.tableRowBorder}`,
-                        background: highlightStop(s, query) ? "#fffbeb" : "transparent",
-                      }}
-                    >
-                      <td style={tdStyle}>{highlightText(s.stop_name, query)}</td>
-                      <td style={tdStyle}>{s.stop_order}</td>
-                      <td style={tdStyle}>{s.morning_eta || "-"}</td>
-                      <td style={tdStyle}>{s.evening_eta || "-"}</td>
-                    </tr>
+          <div style={{ display: "grid", gap: 16 }}>
+            <ContentCard style={{ marginBottom: 0, padding: 12 }}>
+              <RouteMap routes={visibleRoutes} selectedRouteId={selectedRoute?.id} onRouteSelect={setSelectedRouteId} height={480} />
+            </ContentCard>
+
+            {selectedRoute && (
+              <ContentCard style={{ marginBottom: 0, padding: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+                  <h3 style={{ margin: 0, fontSize: 18 }}>{selectedRoute.name}</h3>
+                  <span style={{ fontSize: 12, background: "#edf7ed", color: "#1d7a3a", borderRadius: 999, padding: "6px 10px", fontWeight: 600 }}>
+                    {selectedRoute.status || "Published"}
+                  </span>
+                </div>
+
+                <p style={{ margin: "0 0 14px", color: colors.textSecondary, fontSize: 13 }}>{selectedRoute.description || "No description provided."}</p>
+
+                <div style={{ display: "grid", gap: 8 }}>
+                  {selectedRoute.stops?.map((stop, index) => (
+                    <div key={stop.route_stop_id || `${stop.id}-${index}`} style={{ display: "grid", gridTemplateColumns: "22px minmax(0, 1fr) auto auto", gap: 10, alignItems: "center", border: `1px solid ${colors.borderLight}`, borderRadius: 8, padding: "8px 10px", background: "#fff" }}>
+                      <strong style={{ color: colors.accent }}>{index + 1}</strong>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{stop.name}</div>
+                        {stop.address && <div style={{ fontSize: 12, color: colors.textSecondary }}>{stop.address}</div>}
+                      </div>
+                      <span style={{ fontSize: 11, color: colors.textSecondary }}>{stop.morning_eta ? `AM ${stop.morning_eta}` : "AM —"}</span>
+                      <span style={{ fontSize: 11, color: colors.textSecondary }}>{stop.evening_eta ? `PM ${stop.evening_eta}` : "PM —"}</span>
+                    </div>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        );
-      })}
-
-      {/* ── Driver Modal ── */}
-      {selectedDriver && (
-        <div style={overlayStyle} onClick={() => setSelectedDriver(null)}>
-          <div style={{ ...modalStyle, width: isMobile ? "90%" : "320px" }} onClick={(e) => e.stopPropagation()}>
-            <button style={closeBtnStyle} onClick={() => setSelectedDriver(null)}>✕</button>
-            <div style={avatarCircleStyle}>DR</div>
-            <h3 style={{ textAlign: "center", margin: "12px 0 4px", fontFamily: fonts.heading }}>
-              {selectedDriver.name || "Driver"}
-            </h3>
-            <p style={{ textAlign: "center", color: colors.textSecondary, fontSize: "13px", margin: "0 0 16px" }}>
-              Driver Details
-            </p>
-
-            {driverLoading ? (
-              <p style={{ textAlign: "center", color: colors.textMuted }}>Loading...</p>
-            ) : selectedDriver.error ? (
-              <p style={{ textAlign: "center", color: colors.dangerText }}>{selectedDriver.error}</p>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                <ModalDetailRow label="Phone" value={selectedDriver.phone} />
-                <ModalDetailRow label="License No." value={selectedDriver.license_number} />
-                <ModalDetailRow label="Available" value={selectedDriver.is_available ? "Yes" : "No"} />
-              </div>
+                </div>
+              </ContentCard>
             )}
           </div>
         </div>
@@ -195,39 +119,5 @@ function ViewRoutes() {
     </PageShell>
   );
 }
-
-// ── Small reusable row inside modal ──
-function ModalDetailRow({ label, value }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: colors.pageBg, borderRadius: radius.md }}>
-      <span style={{ fontSize: "13px", color: colors.textSecondary }}>{label}</span>
-      <span style={{ fontSize: "13px", fontWeight: "600", color: colors.textPrimary }}>{value || "-"}</span>
-    </div>
-  );
-}
-
-// ── Helpers ──
-function highlightText(text, query) {
-  if (!query || !text) return text;
-  const regex = new RegExp(`(${query})`, "gi");
-  return text.split(regex).map((part, i) =>
-    regex.test(part)
-      ? <mark key={i} style={{ background: "#fde68a", borderRadius: "3px", padding: "0 2px" }}>{part}</mark>
-      : part
-  );
-}
-
-function highlightStop(stop, query) {
-  return query && stop.stop_name?.toLowerCase().includes(query);
-}
-
-// ── Styles ──
-const badgeStyle = { padding: "4px 10px", borderRadius: "20px", background: colors.infoBg, color: colors.infoText, fontSize: "13px", fontWeight: "500", border: `1px solid rgba(40,141,196,0.2)` };
-const thStyle = { textAlign: "left", padding: "8px 12px", fontWeight: "600", fontSize: "11px", color: colors.textSecondary, textTransform: "uppercase", letterSpacing: "0.06em" };
-const tdStyle = { padding: "8px 12px", fontSize: "13.5px", color: colors.textPrimary };
-const overlayStyle = { position: "fixed", inset: 0, background: "rgba(11,45,66,0.45)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 };
-const modalStyle = { background: "#fff", borderRadius: "16px", padding: "28px 24px", position: "relative", boxShadow: "0 24px 64px rgba(11,45,66,0.22)", maxWidth: "90%" };
-const closeBtnStyle = { position: "absolute", top: "12px", right: "14px", background: "none", border: "none", fontSize: "16px", cursor: "pointer", color: colors.textMuted };
-const avatarCircleStyle = { width: "60px", height: "60px", borderRadius: "50%", background: colors.infoBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "28px", margin: "0 auto", color: colors.accent };
 
 export default ViewRoutes;

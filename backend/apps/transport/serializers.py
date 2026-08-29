@@ -70,6 +70,24 @@ class StopSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['created_at']
 
+    def validate(self, attrs):
+        """Reject unusable active stop coordinates while preserving old inactive data."""
+        latitude = attrs.get("latitude", getattr(self.instance, "latitude", None))
+        longitude = attrs.get("longitude", getattr(self.instance, "longitude", None))
+        is_active = attrs.get("is_active", getattr(self.instance, "is_active", True))
+
+        if not is_active:
+            return attrs
+        if latitude is None or longitude is None:
+            raise serializers.ValidationError("Active stops require latitude and longitude.")
+        if not (-90 <= float(latitude) <= 90):
+            raise serializers.ValidationError({"latitude": "Latitude must be between -90 and 90."})
+        if not (-180 <= float(longitude) <= 180):
+            raise serializers.ValidationError({"longitude": "Longitude must be between -180 and 180."})
+        if float(latitude) == 0 and float(longitude) == 0:
+            raise serializers.ValidationError("0,0 is not a valid active pickup stop.")
+        return attrs
+
 
 class RouteStopSerializer(serializers.ModelSerializer):
     route_name = serializers.CharField(source="route.name", read_only=True)
@@ -257,12 +275,19 @@ class TransportRegistrationSerializer(serializers.ModelSerializer):
     stop_id = serializers.PrimaryKeyRelatedField(
         queryset=Stop.objects.all(),
         source="stop",
-        write_only=True
+        write_only=True,
+        required=False,
     )
     semester_id = serializers.PrimaryKeyRelatedField(
         queryset=Semester.objects.all(),
         source="semester",
         write_only=True
+    )
+    route_stop_id = serializers.PrimaryKeyRelatedField(
+        queryset=RouteStop.objects.select_related("route", "stop"),
+        source="route_stop",
+        write_only=True,
+        required=False,
     )
     semester = serializers.PrimaryKeyRelatedField(read_only=True)
     stop = serializers.PrimaryKeyRelatedField(read_only=True)
@@ -271,12 +296,24 @@ class TransportRegistrationSerializer(serializers.ModelSerializer):
         model = TransportRegistration
         fields = [
             "id",
-            "semester_id", "stop_id",
+            "semester_id", "stop_id", "route_stop_id",
             "semester", "stop",
             "semester_name", "stop_name", "route_name",
             "status", "fee_amount", "is_paid", "created_at",
         ]
         read_only_fields = ["student", "route", "created_at"]
+
+    def validate(self, attrs):
+        route_stop = attrs.pop("route_stop", None)
+        stop = attrs.get("stop")
+        if route_stop:
+            if stop and stop.pk != route_stop.stop_id:
+                raise serializers.ValidationError({"route_stop_id": "The selected route stop does not match stop_id."})
+            attrs["stop"] = route_stop.stop
+            attrs["selected_route_stop"] = route_stop
+        elif not stop:
+            raise serializers.ValidationError({"route_stop_id": "Select a route stop on the map."})
+        return attrs
 
 class SeatAllocationSerializer(serializers.ModelSerializer):
     registration = SemesterRegistrationSerializer(read_only=True)
@@ -514,4 +551,4 @@ class IncidentSerializer(serializers.ModelSerializer):
         occurred_at = attrs.get("occurred_at")
         if occurred_at is not None and occurred_at > timezone.now():
             raise serializers.ValidationError({"occurred_at": "Occurrence time cannot be in the future."})
-        return attrs
+        return attrs

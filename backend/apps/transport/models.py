@@ -42,9 +42,20 @@ class Semester(models.Model):
 
 
 class Route(models.Model):
+    STATUS_CHOICES = [
+        ("draft", "Draft"),
+        ("published", "Published"),
+        ("archived", "Archived"),
+    ]
+
     name = models.CharField(max_length=100, default="N/A")
     description = models.TextField(default="No description")
     is_active = models.BooleanField(default=True)
+    # Cached road-following GeoJSON. Ordered RouteStop records remain the source
+    # of truth, so a routing-provider outage never makes a route uneditable.
+    geometry = models.JSONField(null=True, blank=True)
+    geometry_updated_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default="published")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -57,6 +68,10 @@ class Stop(models.Model):
     latitude = models.DecimalField(max_digits=9, decimal_places=6, default=0.0)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, default=0.0)
     address = models.TextField(default="N/A")
+    is_active = models.BooleanField(default=True)
+    location_source = models.CharField(max_length=30, default="manual")
+    location_accuracy_m = models.PositiveIntegerField(null=True, blank=True)
+    provider_place_id = models.CharField(max_length=255, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -72,6 +87,14 @@ class RouteStop(models.Model):
 
     def __str__(self):
         return f"{self.route.name} - {self.stop.name} ({self.stop_order})"
+
+    class Meta:
+        ordering = ["route_id", "stop_order"]
+        constraints = [
+            models.UniqueConstraint(fields=["route", "stop"], name="unique_stop_per_route"),
+            models.UniqueConstraint(fields=["route", "stop_order"], name="unique_stop_order_per_route"),
+            models.CheckConstraint(condition=models.Q(stop_order__gt=0), name="route_stop_order_positive"),
+        ]
 
 class Bus(models.Model):
     bus_number = models.CharField(max_length=20, default="N/A")

@@ -3,13 +3,14 @@ import { useNavigate } from "react-router-dom";
 import PageShell, { PageTitle, ContentCard } from "../../components/PageShell";
 import { Spinner, Banner, Field, selectStyle, ErrorText } from "../../components/ui";
 import { btn, colors } from "../../theme";
-import { getStops, getSemesters, createRegistration, getRegistration, getChallan } from "../../services/transportService";
+import RouteMap from "../../components/maps/RouteMap";
+import { getSemesters, createRegistration, getRegistration, getChallan, getEligibleRouteStops } from "../../services/transportService";
 
 function TransportRegistration() {
   const [registration, setRegistration] = useState(null);
   const [semesters, setSemesters] = useState([]);
-  const [stops, setStops] = useState([]);
-  const [selectedStop, setSelectedStop] = useState("");
+  const [eligibleStops, setEligibleStops] = useState([]);
+  const [selectedRouteStop, setSelectedRouteStop] = useState("");
   const [selectedSemester, setSelectedSemester] = useState("");
   const [loading, setLoading] = useState(false);
   const [challan, setChallan] = useState(null);
@@ -19,13 +20,9 @@ function TransportRegistration() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [semRes, stopsRes, regRes] = await Promise.all([getSemesters(), getStops(), getRegistration()]);
+        const [semRes, regRes] = await Promise.all([getSemesters(), getRegistration()]);
         const semData = semRes.data?.results ?? semRes.data;
-        const stopData = stopsRes.data?.results ?? stopsRes.data;
-        const regData = regRes.data?.results ?? regRes.data;
-
         setSemesters(Array.isArray(semData) ? semData : []);
-        setStops(Array.isArray(stopData) ? stopData : []);
         const regList = regRes.data?.results ?? regRes.data;
 
         if (Array.isArray(regList) && regList.length > 0) {
@@ -38,12 +35,24 @@ function TransportRegistration() {
     loadData();
   }, []);
 
+  const loadEligibleStops = async (semesterId) => {
+    setEligibleStops([]);
+    setSelectedRouteStop("");
+    if (!semesterId) return;
+    try {
+      const response = await getEligibleRouteStops(semesterId);
+      setEligibleStops(response.data.route_stops || []);
+    } catch (err) {
+      setMessage(err.response?.data?.detail || "No selectable route stops are available for this semester.");
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedStop || !selectedSemester) { setMessage("Please select both semester and stop."); return; }
+    if (!selectedRouteStop || !selectedSemester) { setMessage("Please select both semester and pickup stop on the map."); return; }
     setLoading(true); setMessage("");
     try {
-      await createRegistration({ stop_id: selectedStop, semester_id: selectedSemester });
+      await createRegistration({ route_stop_id: selectedRouteStop, semester_id: selectedSemester });
       const regRes = await getRegistration();
       setRegistration(regRes.data[0]);
       setMessage("Registration submitted successfully!");
@@ -54,6 +63,20 @@ function TransportRegistration() {
   };
 
   const status = registration?.status?.toLowerCase();
+  const mapRoutes = Object.values(eligibleStops.reduce((groups, routeStop) => {
+    const key = routeStop.route_id;
+    if (!groups[key]) groups[key] = { id: key, name: routeStop.route_name, description: routeStop.route_description, stops: [] };
+    groups[key].stops.push({
+      ...routeStop,
+      route_stop_id: routeStop.id,
+      id: routeStop.stop_id,
+      name: routeStop.stop_name,
+      longitude: routeStop.longitude,
+      latitude: routeStop.latitude,
+    });
+    return groups;
+  }, {}));
+  const selectedStop = eligibleStops.find((stop) => String(stop.id) === String(selectedRouteStop));
 
   return (
     <PageShell role="student" title="Transport Registration" maxWidth="860px">
@@ -86,7 +109,7 @@ function TransportRegistration() {
           <ContentCard>
             <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               <Field label="Semester" required>
-                <select value={selectedSemester} onChange={(e) => setSelectedSemester(e.target.value)} style={selectStyle}>
+                <select value={selectedSemester} onChange={(e) => { setSelectedSemester(e.target.value); loadEligibleStops(e.target.value); }} style={selectStyle}>
                   <option value="">Select Semester</option>
                   {Array.isArray(semesters) && semesters.map(s => (
                     <option key={s.id} value={s.id}>{s.name}</option>
@@ -94,19 +117,26 @@ function TransportRegistration() {
                 </select>
               </Field>
               <Field label="Pickup Stop" required>
-                <select value={selectedStop} onChange={(e) => setSelectedStop(e.target.value)} style={selectStyle}>
-                  <option value="">Select Stop</option>
-                  {Array.isArray(stops) && stops.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
+                <select value={selectedRouteStop} onChange={(e) => setSelectedRouteStop(e.target.value)} style={selectStyle} disabled={!selectedSemester}>
+                  <option value="">Select a route and stop</option>
+                  {eligibleStops.map((stop) => <option key={stop.id} value={stop.id}>{stop.route_name} — {stop.stop_name}{stop.morning_eta ? ` (${stop.morning_eta})` : ""}</option>)}
                 </select>
               </Field>
+              {selectedStop && <p style={{ margin: 0, color: colors.successText, fontSize: 13 }}><strong>Selected:</strong> {selectedStop.route_name} · {selectedStop.stop_name}{selectedStop.morning_eta ? ` · AM ${selectedStop.morning_eta}` : ""}</p>}
               <button type="submit" disabled={loading} style={{ ...btn.primary, alignSelf: "flex-start", minWidth: "180px", opacity: loading ? 0.6 : 1 }}>
                 {loading ? "Submitting…" : "Submit Registration"}
               </button>
               {message && <p style={{ margin: 0, fontSize: "13.5px", color: message.includes("success") ? colors.successText : colors.dangerText }}>{message}</p>}
             </form>
           </ContentCard>
+
+          {selectedSemester && (
+            <ContentCard style={{ gridColumn: "1 / -1" }}>
+              <h3 style={{ margin: "0 0 6px", fontSize: 15 }}>Choose your route and stop on the map</h3>
+              <p style={{ margin: "0 0 14px", color: colors.textSecondary, fontSize: 13 }}>Click a route to focus it, then choose the exact route-stop pair from the list above. This prevents ambiguous stop assignments.</p>
+              {mapRoutes.length ? <RouteMap routes={mapRoutes} height={400} onStopSelect={(stop) => setSelectedRouteStop(String(stop.routeStopId))} /> : <Banner variant="warning">No assigned routes have selectable mapped stops for this semester.</Banner>}
+            </ContentCard>
+          )}
 
           <div style={{ background: colors.infoBg, border: `1px solid rgba(40,141,196,0.2)`, borderRadius: "12px", padding: "24px" }}>
             <h4 style={{ margin: "0 0 16px", fontSize: "14px", fontWeight: "700", color: colors.infoText }}>How Registration Works</h4>

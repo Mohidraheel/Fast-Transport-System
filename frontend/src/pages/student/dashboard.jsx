@@ -72,7 +72,7 @@ function StudentCard({ profile, seat, active_registration, isMobile }) {
             </svg>
           </div>
           <div>
-            <p style={{ margin: 0, fontSize: "9px", letterSpacing: "0.16em", color: "rgba(255,255,255,0.4)", textTransform: "uppercase" }}>FAST NUCES</p>
+            <p style={{ margin: 0, fontSize: "9px", letterSpacing: "0.16em", color: "rgba(255,255,255,0.4)", textTransform: "uppercase" }}>Fleetcentric.ai</p>
             <p style={{ margin: 0, fontSize: "13px", fontWeight: "700", color: "#fff" }}>Transport Card</p>
           </div>
         </div>
