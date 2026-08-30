@@ -27,10 +27,11 @@ from django.http import HttpResponse
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
 import io
+import os
 from .permissions import (
     IsAdmin,
     IsStudent,
@@ -2305,13 +2306,25 @@ def download_transport_card(request):
 
     story = []
 
-    # Header
+    # Header — brand logo, then the issuing institution.
+    # A missing asset must never 500 the download, so fall back to text only.
+    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "assets", "fleetcentric_logo.png")
+    if os.path.exists(logo_path):
+        logo_width = 6.5 * cm
+        # Source artwork is 1024x358, so keep that ratio rather than hardcoding
+        # a height that would distort the mark.
+        logo = RLImage(logo_path, width=logo_width, height=logo_width * 358 / 1024)
+        logo.hAlign = "CENTER"
+        story.append(logo)
+        story.append(Spacer(1, 0.45 * cm))
+
     story.append(Paragraph("FAST NUCES", title_style))
     story.append(Paragraph("Transport Management System", subtitle_style))
     story.append(Spacer(1, 0.5*cm))
     story.append(Paragraph("STUDENT TRANSPORT CARD", ParagraphStyle(
         "cardtitle", parent=styles["Heading1"], alignment=TA_CENTER,
-        fontSize=16, textColor=colors.HexColor("#1a3c5e")
+        fontSize=16, textColor=colors.HexColor("#00254D")
     )))
     story.append(Spacer(1, 0.8*cm))
 
@@ -2333,7 +2346,7 @@ def download_transport_card(request):
     table = Table(data, colWidths=[6*cm, 10*cm])
     table.setStyle(TableStyle([
         # Header row
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a3c5e")),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#00254D")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, 0), 12),
@@ -2350,7 +2363,7 @@ def download_transport_card(request):
 
         # Border
         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
-        ("BOX", (0, 0), (-1, -1), 1.5, colors.HexColor("#1a3c5e")),
+        ("BOX", (0, 0), (-1, -1), 1.5, colors.HexColor("#00254D")),
     ]))
 
     story.append(table)

@@ -262,12 +262,13 @@ function SidebarContent({ groups, role, handleLogout, isMobile, onClose }) {
       {/* Brand */}
       <div style={styles.brand}>
         <div style={styles.logoMark}>
-          <svg width="20" height="20" viewBox="0 0 28 28" fill="none">
-            <rect x="2" y="8" width="24" height="12" rx="2" stroke="white" strokeWidth="1.6"/>
-            <circle cx="8" cy="22" r="2.5" fill="white"/>
-            <circle cx="20" cy="22" r="2.5" fill="white"/>
-            <path d="M2 12h6l2-4h8l2 4" stroke="white" strokeWidth="1.6" strokeLinejoin="round"/>
-          </svg>
+          <img
+            src="/fleetcentric-icon.svg"
+            alt="Fleetcentric.ai"
+            width="26"
+            height="26"
+            style={{ display: "block" }}
+          />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={styles.brandSub}>Fleetcentric.ai</p>
@@ -359,12 +360,14 @@ const styles = {
     width:           "38px",
     height:          "38px",
     borderRadius:    "10px",
-    background:      colors.accent,
+    // The brand mark is navy + teal, so it needs a light tile to stay
+    // legible against the navy sidebar.
+    background:      "#fff",
     display:         "flex",
     alignItems:      "center",
     justifyContent:  "center",
     flexShrink:      0,
-    boxShadow:       `0 4px 12px rgba(40,141,196,0.35)`,
+    boxShadow:       "0 4px 12px rgba(0,0,0,0.28)",
   },
   brandSub: {
     margin:        0,

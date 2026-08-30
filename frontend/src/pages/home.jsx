@@ -17,18 +17,13 @@ function Home() {
       <div style={styles.grain} />
 
       <div style={styles.container}>
-        {/* Logo */}
-        <div style={styles.logoMark}>
-          <svg width="36" height="36" viewBox="0 0 28 28" fill="none">
-            <rect x="2" y="8" width="24" height="12" rx="2" stroke="white" strokeWidth="1.5" />
-            <circle cx="8" cy="22" r="3" fill="white" />
-            <circle cx="20" cy="22" r="3" fill="white" />
-            <path d="M2 12h6l2-4h8l2 4" stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
-          </svg>
-        </div>
-
-        {/* Eyebrow */}
-        <p style={styles.eyebrow}>Fleetcentric.ai</p>
+        {/* Logo — full lockup; the dark variant has a white wordmark for
+            this dark hero, and it replaces the separate text eyebrow. */}
+        <img
+          src="/fleetcentric-primary-dark.svg"
+          alt="Fleetcentric.ai"
+          style={styles.logoLockup}
+        />
 
         {/* Headline */}
         <h1 style={styles.headline}>
@@ -115,25 +110,11 @@ const styles = {
     maxWidth: "540px",
     width: "100%",
   },
-  logoMark: {
-    width: "72px",
-    height: "72px",
-    borderRadius: "20px",
-    background: "rgba(255,255,255,0.05)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    backdropFilter: "blur(8px)",
-    marginBottom: "4px",
-  },
-  eyebrow: {
-    margin: 0,
-    fontSize: "11px",
-    letterSpacing: "0.18em",
-    color: "rgba(255,255,255,0.3)",
-    textTransform: "uppercase",
-    fontWeight: 500,
+  logoLockup: {
+    width: "min(300px, 72vw)",
+    height: "auto",
+    display: "block",
+    marginBottom: "6px",
   },
   headline: {
     margin: 0,
