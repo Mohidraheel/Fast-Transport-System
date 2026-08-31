@@ -2,7 +2,8 @@ import { useEffect, useState, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import PageShell, { PageTitle, ContentCard } from "../../components/PageShell";
 import Table from "../../components/Table";
-import { SectionBlock, Pill, Spinner, Banner, DetailRow, inputStyle, selectStyle } from "../../components/ui";
+import { SectionBlock, Pill, Spinner, Banner, DetailRow } from "../../components/ui";
+import { inputStyle, selectStyle } from "../../styles/formStyles";
 import { btn, colors, fonts } from "../../theme";
 import RouteMap from "../../components/maps/RouteMap";
 import { getRouteOverview, getRouteMapDetail } from "../../services/transportService";
@@ -20,6 +21,8 @@ const statusVariant = (status) => {
 const statusLabel = (status) =>
   status === "payment_submitted" ? "Payment Submitted" : status;
 
+const EMPTY_STUDENTS = [];
+
 function AdminRouteDetail() {
   const { id } = useParams();
   const [data, setData] = useState(null);
@@ -31,7 +34,6 @@ function AdminRouteDetail() {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     Promise.all([
       getRouteOverview(id),
       getRouteMapDetail(id),
@@ -56,7 +58,7 @@ function AdminRouteDetail() {
     return () => { cancelled = true; };
   }, [id]);
 
-  const students = data?.students ?? [];
+  const students = data?.students || EMPTY_STUDENTS;
 
   const visibleStudents = useMemo(() => {
     const q = search.trim().toLowerCase();

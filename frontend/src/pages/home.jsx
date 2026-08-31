@@ -20,7 +20,7 @@ function Home() {
         {/* Logo — full lockup; the dark variant has a white wordmark for
             this dark hero, and it replaces the separate text eyebrow. */}
         <img
-          src="/fleetcentric-primary-dark.svg"
+          src="/fleetcentric-primary-light.svg"
           alt="Fleetcentric.ai"
           style={styles.logoLockup}
         />

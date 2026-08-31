@@ -42,12 +42,13 @@ function Login() {
       <div style={styles.container}>
         <div style={styles.brand}>
           <div style={styles.logoMark}>
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-              <rect x="2" y="8" width="24" height="12" rx="2" stroke="white" strokeWidth="1.5" />
-              <circle cx="8" cy="22" r="3" fill="white" />
-              <circle cx="20" cy="22" r="3" fill="white" />
-              <path d="M2 12h6l2-4h8l2 4" stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
-            </svg>
+            <img
+              src="/fleetcentric-icon.svg"
+              alt="Fleetcentric.ai"
+              width="28"
+              height="28"
+              style={{ display: "block" }}
+            />
           </div>
           <div>
             <p style={styles.brandSub}>Fleetcentric.ai</p>

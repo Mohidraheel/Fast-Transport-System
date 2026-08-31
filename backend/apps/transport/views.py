@@ -60,6 +60,7 @@ from .models import (
     Challan,
     OTPVerification,
     Incident,
+    CrimeRiskZone,
 )
 
 from .serializers import (
@@ -85,6 +86,7 @@ from .serializers import (
     TransportRegistrationSerializer,
     BusLocationPingSerializer,
     IncidentSerializer,
+    CrimeRiskZoneSerializer,
 )
 
 from .seatallocation import (
@@ -92,6 +94,56 @@ from .seatallocation import (
     allocate_seat_on_assignment,
     reassign_seat_on_assignment,
 )
+from .crime_risk import _setting_bbox
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def crime_risk_zones(request):
+    """Return generated, aggregated crime-risk cells for the map viewport.
+
+    This endpoint intentionally queries only ExternalCrimeEvent-derived
+    snapshots through CrimeRiskZone. Student Incident reports are unrelated.
+    """
+    raw_bbox = request.query_params.get("bbox", "")
+    if raw_bbox:
+        try:
+            values = [float(value) for value in raw_bbox.split(",")]
+            if len(values) != 4:
+                raise ValueError
+            min_lng, min_lat, max_lng, max_lat = values
+            if min_lng >= max_lng or min_lat >= max_lat:
+                raise ValueError
+        except ValueError:
+            return Response({"detail": "bbox must be minLng,minLat,maxLng,maxLat."}, status=400)
+    else:
+        min_lat, min_lng, max_lat, max_lng = _setting_bbox()
+
+    zones = CrimeRiskZone.objects.filter(
+        is_active=True,
+        current_score__isnull=False,
+        min_latitude__lte=max_lat,
+        max_latitude__gte=min_lat,
+        min_longitude__lte=max_lng,
+        max_longitude__gte=min_lng,
+    ).order_by("zone_id")
+    features = []
+    for zone in zones:
+        props = CrimeRiskZoneSerializer(zone).data
+        geometry = props.pop("geometry")
+        features.append({"type": "Feature", "id": zone.zone_id, "properties": props, "geometry": geometry})
+
+    return Response({
+        "type": "FeatureCollection",
+        "features": features,
+        "available": bool(features),
+        "source_configured": bool(getattr(settings, "CRIME_RISK_FEED_URL", "")),
+        "message": None if features else (
+            "Risk data is unavailable until an approved geocoded crime feed is configured."
+            if not getattr(settings, "CRIME_RISK_FEED_URL", "")
+            else "No scored crime-risk data is available for this viewport yet."
+        ),
+    })
 
 
 def _valid_karachi_coordinate(latitude, longitude):

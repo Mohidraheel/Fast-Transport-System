@@ -3,12 +3,13 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import PageShell, { PageTitle } from "../../components/PageShell";
 import { Banner } from "../../components/ui";
-import { colors, fonts, radius } from "../../theme";
+import { colors, radius } from "../../theme";
 import { useBreakpoint } from "../../utils/useBreakpoint";
 import api from "../../services/api";
 
 const POLL_INTERVAL_MS = 8000;
 const INCIDENT_POLL_INTERVAL_MS = 30000;
+const CRIME_RISK_REFRESH_MS = 15 * 60 * 1000;
 const incidentColor = (severity) => (
   severity === "high" ? "#EF4444" : severity === "medium" ? "#F97316" : "#F59E0B"
 );
@@ -55,6 +56,7 @@ export default function StudentMap() {
   const markerElRef  = useRef(null);
   const pollRef      = useRef(null);
   const isMobile     = useBreakpoint(768);
+  const isMobileRef  = useRef(isMobile);
 
   const [trackingData, setTrackingData] = useState(null);
   const [liveData, setLiveData]         = useState(null);
@@ -62,6 +64,13 @@ export default function StudentMap() {
   const [lastUpdated, setLastUpdated]   = useState(null);
   const [isStale, setIsStale]           = useState(false);
   const [incidents, setIncidents]       = useState([]);
+  const [crimeRiskZones, setCrimeRiskZones] = useState([]);
+  const [crimeRiskEnabled, setCrimeRiskEnabled] = useState(true);
+  const [crimeRiskStatus, setCrimeRiskStatus] = useState("");
+
+  useEffect(() => {
+    isMobileRef.current = isMobile;
+  }, [isMobile]);
 
   // 1. Load route metadata once
   useEffect(() => {
@@ -102,6 +111,21 @@ export default function StudentMap() {
     return () => clearInterval(interval);
   }, [fetchIncidents]);
 
+  const fetchCrimeRiskZones = useCallback((map) => {
+    if (!map) return;
+    const bounds = map.getBounds();
+    const bbox = [
+      bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth(),
+    ].join(",");
+    api.get(`/api/crime-risk/zones/?bbox=${encodeURIComponent(bbox)}`)
+      .then(res => {
+        const features = Array.isArray(res.data?.features) ? res.data.features : [];
+        setCrimeRiskZones(features);
+        setCrimeRiskStatus(res.data?.available ? "" : (res.data?.message || "Crime-risk data is not available yet."));
+      })
+      .catch(() => setCrimeRiskStatus("Crime-risk overlay is temporarily unavailable."));
+  }, []);
+
   // 3. Init map ONCE on mount
   useEffect(() => {
     if (mapRef.current) return;
@@ -131,6 +155,70 @@ export default function StudentMap() {
       busMarkerRef.current = new maplibregl.Marker({ element: busEl, anchor: "center" })
         .setLngLat([67.0847, 24.9215])
         .addTo(map);
+
+      // Automated crime-risk cells. This is a separate source from student
+      // incident reports and is rendered underneath the route and markers.
+      map.addSource("crime-risk-zones", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: "crime-risk-zones-fill",
+        type: "fill",
+        source: "crime-risk-zones",
+        paint: {
+          "fill-color": ["match", ["get", "current_level"],
+            "very_high", "#991B1B",
+            "high", "#DC2626",
+            "elevated", "#F59E0B",
+            "low", "#FDE047",
+            "#9CA3AF",
+          ],
+          "fill-opacity": ["match", ["get", "current_level"],
+            "very_high", 0.32,
+            "high", 0.25,
+            "elevated", 0.20,
+            "low", 0.12,
+            0.08,
+          ],
+        },
+      });
+      map.addLayer({
+        id: "crime-risk-zones-outline",
+        type: "line",
+        source: "crime-risk-zones",
+        paint: {
+          "line-color": ["match", ["get", "current_level"],
+            "very_high", "#7F1D1D",
+            "high", "#B91C1C",
+            "elevated", "#D97706",
+            "low", "#CA8A04",
+            "#9CA3AF",
+          ],
+          "line-width": ["match", ["get", "current_level"], "very_high", 2, "high", 1.5, 1],
+          "line-opacity": 0.8,
+        },
+      });
+
+      map.on("click", "crime-risk-zones-fill", (e) => {
+        if (!e.features?.[0]) return;
+        const props = e.features[0].properties || {};
+        const score = props.current_score == null ? "—" : `${Number(props.current_score).toFixed(0)}/100`;
+        const updated = props.source_updated_at ? new Date(props.source_updated_at).toLocaleString() : "—";
+        new maplibregl.Popup({ closeButton: false })
+          .setLngLat(e.lngLat)
+          .setHTML(`<div style="font-family:sans-serif;font-size:13px;min-width:180px;">
+            <strong style="font-size:14px;">Reported-crime risk</strong>
+            <br/><span style="color:#666;">Level:</span> <strong style="text-transform:capitalize;">${escapeHtml(String(props.current_level || "unclassified").replace("_", " "))}</strong>
+            <br/><span style="color:#666;">Score:</span> ${escapeHtml(score)}
+            <br/><span style="color:#666;">Confidence:</span> <span style="text-transform:capitalize;">${escapeHtml(props.confidence || "none")}</span>
+            <br/><span style="color:#666;">Source updated:</span> ${escapeHtml(updated)}
+            <div style="margin-top:7px;padding-top:7px;border-top:1px solid #eee;color:#666;font-size:11px;">Aggregated external crime data; not a guarantee of personal safety.</div>
+          </div>`)
+          .addTo(map);
+      });
+      map.on("mouseenter", "crime-risk-zones-fill", () => { map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", "crime-risk-zones-fill", () => { map.getCanvas().style.cursor = ""; });
 
       // Add incidents source & layers
       map.addSource("incidents", {
@@ -192,6 +280,22 @@ export default function StudentMap() {
     };
   }, []);
 
+  // Load only the visible cells; refresh slowly because external crime data is
+  // not GPS-like realtime data.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return undefined;
+    const load = () => fetchCrimeRiskZones(map);
+    if (map.isStyleLoaded()) load(); else map.once("load", load);
+    const onMove = () => fetchCrimeRiskZones(map);
+    map.on("moveend", onMove);
+    const interval = setInterval(() => fetchCrimeRiskZones(map), CRIME_RISK_REFRESH_MS);
+    return () => {
+      map.off("moveend", onMove);
+      clearInterval(interval);
+    };
+  }, [fetchCrimeRiskZones]);
+
   // 4. Populate route + stops when trackingData loads
   useEffect(() => {
     if (!trackingData || !mapRef.current) return;
@@ -237,7 +341,7 @@ export default function StudentMap() {
           [validStops[0].lng, validStops[0].lat]
         )
       );
-      map.fitBounds(bounds, { padding: isMobile ? 30 : 60, maxZoom: 14 });
+      map.fitBounds(bounds, { padding: isMobileRef.current ? 30 : 60, maxZoom: 14 });
 
       // Add stop markers
       validStops.forEach(stop => {
@@ -300,6 +404,20 @@ export default function StudentMap() {
     }
   }, [incidents]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    const src = map?.getSource("crime-risk-zones");
+    if (src) src.setData({ type: "FeatureCollection", features: crimeRiskZones });
+  }, [crimeRiskZones]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map?.getLayer("crime-risk-zones-fill")) return;
+    const visibility = crimeRiskEnabled ? "visible" : "none";
+    map.setLayoutProperty("crime-risk-zones-fill", "visibility", visibility);
+    map.setLayoutProperty("crime-risk-zones-outline", "visibility", visibility);
+  }, [crimeRiskEnabled]);
+
   const timeSince = (date) => {
     if (!date) return "—";
     const secs = Math.floor((new Date() - date) / 1000);
@@ -354,6 +472,17 @@ export default function StudentMap() {
           ref={mapContainer}
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 12 }}
         />
+        <div style={{ position: "absolute", top: 12, left: 12, zIndex: 2, background: "rgba(255,255,255,0.96)", borderRadius: 8, padding: "8px 10px", boxShadow: "0 1px 5px rgba(0,0,0,0.2)", fontSize: 12 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontWeight: 600 }}>
+            <input type="checkbox" checked={crimeRiskEnabled} onChange={(e) => setCrimeRiskEnabled(e.target.checked)} />
+            Reported-crime risk
+          </label>
+          {crimeRiskEnabled && <div style={{ display: "flex", gap: 7, marginTop: 7, color: "#555", fontSize: 10 }}>
+            <span><i style={{ display: "inline-block", width: 9, height: 9, background: "#FDE047", marginRight: 3 }} />Low</span>
+            <span><i style={{ display: "inline-block", width: 9, height: 9, background: "#F59E0B", marginRight: 3 }} />Elevated</span>
+            <span><i style={{ display: "inline-block", width: 9, height: 9, background: "#DC2626", marginRight: 3 }} />High</span>
+          </div>}
+        </div>
         {!trackingData && (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.8)", borderRadius: 12, zIndex: 10 }}>
             <div style={{
@@ -366,8 +495,10 @@ export default function StudentMap() {
         )}
       </div>
 
+      {crimeRiskStatus && <p style={{ fontSize: 12, color: colors.textMuted, marginTop: 8 }}>{crimeRiskStatus}</p>}
+
       <p style={{ fontSize: 12, color: colors.textMuted, marginTop: 8 }}>
-        🟡 Your stop &nbsp;·&nbsp; ⚫ Other stops &nbsp;·&nbsp; 🔵 Route &nbsp;·&nbsp; 🚌 Live bus position (updates every 8s)
+        🟡 Your stop &nbsp;·&nbsp; ⚫ Other stops &nbsp;·&nbsp; 🔵 Route &nbsp;·&nbsp; 🚌 Live bus position (updates every 8s) &nbsp;·&nbsp; Crime-risk data is aggregated and delayed
       </p>
     </PageShell>
   );

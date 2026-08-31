@@ -61,15 +61,16 @@ function StudentCard({ profile, seat, active_registration, isMobile }) {
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <div style={{
             width: "34px", height: "34px", borderRadius: "8px",
-            background: "rgba(40,141,196,0.35)", border: "1px solid rgba(40,141,196,0.45)",
+            background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.18)",
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
-            <svg width="18" height="18" viewBox="0 0 28 28" fill="none">
-              <rect x="2" y="8" width="24" height="12" rx="2" stroke="white" strokeWidth="1.8"/>
-              <circle cx="8" cy="22" r="2.5" fill="white"/>
-              <circle cx="20" cy="22" r="2.5" fill="white"/>
-              <path d="M2 12h6l2-4h8l2 4" stroke="white" strokeWidth="1.8" strokeLinejoin="round"/>
-            </svg>
+            <img
+              src="/fleetcentric-icon.svg"
+              alt="Fleetcentric.ai"
+              width="18"
+              height="18"
+              style={{ display: "block" }}
+            />
           </div>
           <div>
             <p style={{ margin: 0, fontSize: "9px", letterSpacing: "0.16em", color: "rgba(255,255,255,0.4)", textTransform: "uppercase" }}>Fleetcentric.ai</p>
