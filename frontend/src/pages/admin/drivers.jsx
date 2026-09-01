@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import PageShell, { PageTitle } from "../../components/PageShell";
 import Table from "../../components/Table";
-import { ConfirmModal, FormModal, StatusBadge, FormCard, Field, SectionBlock, inputStyle } from "../../components/ui";
+import { ConfirmModal, FormModal, StatusBadge, FormCard, Field, SectionBlock } from "../../components/ui";
+import { inputStyle } from "../../styles/formStyles";
 import { btn } from "../../theme";
 import { getDrivers, createDriver, updateDriver, deleteDriver } from "../../services/transportService";
 

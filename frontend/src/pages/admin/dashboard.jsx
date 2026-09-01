@@ -107,7 +107,7 @@ const VARIANT_STYLES = {
   danger: { accent: colors.dangerText,   bg: colors.dangerBg,  text: colors.dangerText  },
 };
 
-function StatCard({ label, value, Icon, path, variant }) {
+function StatCard({ label, value, icon, path, variant }) {
   const navigate = useNavigate();
   const [hovered, setHovered] = useState(false);
   const v = VARIANT_STYLES[variant] || VARIANT_STYLES.blue;
@@ -136,7 +136,7 @@ function StatCard({ label, value, Icon, path, variant }) {
           display: "flex", alignItems: "center", justifyContent: "center",
           color: v.accent,
         }}>
-          <Icon />
+          {icon()}
         </div>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={hovered ? v.accent : colors.textMuted} strokeWidth="2" strokeLinecap="round">
           <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
@@ -196,7 +196,7 @@ function AdminDashboard() {
             key={cfg.key}
             label={cfg.label}
             value={stats?.[cfg.key]}
-            Icon={cfg.Icon}
+            icon={cfg.Icon}
             path={cfg.path}
             variant={cfg.variant}
           />
@@ -219,7 +219,7 @@ function AdminDashboard() {
   );
 }
 
-function QuickAction({ label, path, Icon }) {
+function QuickAction({ label, path, Icon: icon }) {
   const navigate = useNavigate();
   const [hovered, setHovered] = useState(false);
   return (
@@ -237,7 +237,7 @@ function QuickAction({ label, path, Icon }) {
       }}
     >
       <span style={{ color: hovered ? colors.accent : colors.textMuted, display: "flex" }}>
-        <Icon />
+        {icon()}
       </span>
       {label}
     </button>

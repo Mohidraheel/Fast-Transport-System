@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import PageShell, { PageTitle } from "../../components/PageShell";
 import Table from "../../components/Table";
-import { ConfirmModal, FormModal, StatusBadge, FormCard, Field, SectionBlock, selectStyle } from "../../components/ui";
+import { ConfirmModal, FormModal, StatusBadge, FormCard, Field, SectionBlock } from "../../components/ui";
+import { selectStyle } from "../../styles/formStyles";
 import { btn } from "../../theme";
 import {
   getAssignments, createAssignment, updateAssignment, deleteAssignment,
@@ -10,7 +11,7 @@ import {
 
 const actionBtn = { ...btn.ghost, padding: "7px 12px", fontSize: "12px" };
 
-const getOptionsWithCurrent = (options, currentItem, labelGetter) => {
+const getOptionsWithCurrent = (options, currentItem) => {
   if (!currentItem) return options;
   return options.some((option) => option.id === currentItem.id)
     ? options
@@ -130,10 +131,10 @@ function AssignmentsPage() {
   const activeBuses      = buses.filter(b => b.is_active);
   const availDrivers     = drivers.filter(d => d.is_available);
   const activeSemesters  = semesters.filter(s => s.is_active);
-  const editRoutes = getOptionsWithCurrent(activeRoutes, editingAssignment?.route, (route) => route.name);
-  const editBuses = getOptionsWithCurrent(activeBuses, editingAssignment?.bus, (bus) => bus.bus_number);
-  const editDrivers = getOptionsWithCurrent(availDrivers, editingAssignment?.driver, (driver) => driver.name);
-  const editSemesters = getOptionsWithCurrent(activeSemesters, editingAssignment?.semester, (semester) => semester.name);
+  const editRoutes = getOptionsWithCurrent(activeRoutes, editingAssignment?.route);
+  const editBuses = getOptionsWithCurrent(activeBuses, editingAssignment?.bus);
+  const editDrivers = getOptionsWithCurrent(availDrivers, editingAssignment?.driver);
+  const editSemesters = getOptionsWithCurrent(activeSemesters, editingAssignment?.semester);
 
   return (
     <PageShell role="staff" title="Admin — Assignments">

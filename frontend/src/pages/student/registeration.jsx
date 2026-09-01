@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PageShell, { PageTitle, ContentCard } from "../../components/PageShell";
-import { Spinner, Banner, Field, selectStyle, ErrorText } from "../../components/ui";
+import { Spinner, Banner, Field, ErrorText } from "../../components/ui";
+import { selectStyle } from "../../styles/formStyles";
 import { btn, colors } from "../../theme";
 import RouteMap from "../../components/maps/RouteMap";
 import { getSemesters, createRegistration, getRegistration, getChallan, getEligibleRouteStops } from "../../services/transportService";
