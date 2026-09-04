@@ -1,6 +1,6 @@
 # FAST Transport — University Transport Management System
 
-> **A full-stack web application for digitizing and streamlining university transport operations at FAST NUCES, Karachi.**
+> **A full stack web application for digitizing and streamlining university transport operations at FAST NUCES, Karachi.**
 
 ![Project Status](https://img.shields.io/badge/status-active-success.svg)
 ![Django](https://img.shields.io/badge/Django-6.0-092E20?logo=django)
@@ -34,6 +34,7 @@ Built with **Django REST Framework** and **React (Vite)**, it follows a clean th
 *   **Seat Allocation**: Automatic seat assignment based on availability, with waitlist management for full routes.
 *   **Fee Payment**: Stripe-integrated challan system with OTP confirmation for secure payments.
 *   **Live Bus Tracking**: Real-time GPS tracking with interactive MapLibre GL maps, OSRM road routing, and stop markers.
+*   **Automated Crime-Risk Zones**: Optional authenticated overlay generated from an approved geocoded crime feed; it is independent of student incident reports.
 *   **Route Change Requests**: Request stop/route changes with auto-routing to the best-fit route.
 *   **Complaints**: Submit, track, and receive updates on transport-related complaints.
 
@@ -84,6 +85,9 @@ DATABASE_USER=postgres
 DATABASE_PASSWORD=your-db-password
 EMAIL_HOST_PASSWORD=your-brevo-smtp-key
 VITE_API_BASE_URL=http://localhost:8000
+# Optional backend-only crime feed (must be licensed/approved and geocoded)
+CRIME_RISK_FEED_URL=https://your-approved-provider.example/api/crime-events
+CRIME_RISK_FEED_TOKEN=replace-me
 ```
 
 ### 3. Backend Setup
@@ -106,6 +110,24 @@ npm run dev
 ```
 
 The application should now be accessible at `http://localhost:5173`.
+
+### Crime-risk data (optional)
+
+The crime-risk layer is intentionally separate from student incident reports. Configure an approved/licensed GeoJSON crime feed using `CRIME_RISK_FEED_URL` and `CRIME_RISK_FEED_TOKEN` on the backend, then run:
+
+```bash
+python manage.py refresh_crime_risk --settings=config.settings.dev
+```
+
+The feed must provide a GeoJSON `FeatureCollection` (or an `events` list) with an ID, category, timestamp, and WGS-84 coordinates. Without a configured geocoded feed, the map shows no crime-risk polygons rather than guessing from city-wide crime totals.
+
+For local visual verification only, seed clearly labelled fictional events into the development database:
+
+```bash
+python manage.py seed_demo_crime_risk --settings=config.settings.dev
+```
+
+This creates low, elevated, and high/very-high sample cells; do not run it against production or present the values as real crime data.
 
 ---
 

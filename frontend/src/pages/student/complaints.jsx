@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import PageShell, { PageTitle } from "../../components/PageShell";
 import Table from "../../components/Table";
-import { FormCard, Field, inputStyle, selectStyle, ValidatedInput } from "../../components/ui";
-import { validateField } from "../../utils/validation";
+import { FormCard, Field, ValidatedInput } from "../../components/ui";
+import { inputStyle, selectStyle } from "../../styles/formStyles";
 import { getComplaints, createComplaint } from "../../services/transportService";
 
 function StudentComplaints() {

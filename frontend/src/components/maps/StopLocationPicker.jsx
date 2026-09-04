@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { resolveMapLocation } from "../../services/transportService";
@@ -36,28 +36,28 @@ export default function StopLocationPicker({ latitude, longitude, onChange, heig
     changeRef.current = onChange;
   }, [onChange]);
 
-  const applyLocation = (location) => {
+  const applyLocation = useCallback((location) => {
     changeRef.current({
       latitude: Number(location.latitude).toFixed(6),
       longitude: Number(location.longitude).toFixed(6),
       ...(location.label ? { address: location.label } : {}),
       ...(location.provider_place_id ? { provider_place_id: location.provider_place_id, location_source: "geocoder" } : {}),
     });
-  };
+  }, []);
 
-  const reverseLookup = async (lngLat) => {
+  const reverseLookup = useCallback(async (lngLat) => {
     try {
       const response = await resolveMapLocation({ action: "reverse", latitude: lngLat.lat, longitude: lngLat.lng });
       if (response.data.results?.[0]) applyLocation(response.data.results[0]);
     } catch {
       setLookupMessage("Pin saved; address lookup is temporarily unavailable.");
     }
-  };
+  }, [applyLocation]);
 
-  const updatePosition = (lngLat) => {
+  const updatePosition = useCallback((lngLat) => {
     changeRef.current({ latitude: lngLat.lat.toFixed(6), longitude: lngLat.lng.toFixed(6) });
     reverseLookup(lngLat);
-  };
+  }, [reverseLookup]);
 
   useEffect(() => {
     if (mapRef.current) return undefined;
@@ -66,7 +66,7 @@ export default function StopLocationPicker({ latitude, longitude, onChange, heig
     map.on("click", (event) => updatePosition(event.lngLat));
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; markerRef.current = null; };
-  }, []);
+  }, [updatePosition]);
 
   useEffect(() => {
     const lat = toSafeCoordinate(latitude, "latitude");
@@ -91,7 +91,7 @@ export default function StopLocationPicker({ latitude, longitude, onChange, heig
       markerRef.current.setLngLat(position);
     }
     map.flyTo({ center: position, zoom: Math.max(map.getZoom(), 14), duration: 350 });
-  }, [latitude, longitude]);
+  }, [latitude, longitude, updatePosition]);
 
   const useMyLocation = () => {
     if (!navigator.geolocation) return;

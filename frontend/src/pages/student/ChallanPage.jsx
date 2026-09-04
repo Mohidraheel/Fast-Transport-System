@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
 import PageShell, { PageTitle, ContentCard } from "../../components/PageShell";
@@ -236,7 +236,10 @@ function ChallanPage() {
   const [showSuccess, setShowSuccess] = useState(false);
   const pollRef = useRef(null);
 
-  const fetchChallan = () => getChallan(id).then(res => setData(res.data)).catch(() => {});
+  const fetchChallan = useCallback(
+    () => getChallan(id).then(res => setData(res.data)).catch(() => {}),
+    [id]
+  );
 
   useEffect(() => {
     getChallan(id).then(res => { setData(res.data); setLoading(false); }).catch(() => setLoading(false));
@@ -247,7 +250,7 @@ function ChallanPage() {
     if (isPaidNotApproved) pollRef.current = setInterval(fetchChallan, 10000);
     else clearInterval(pollRef.current);
     return () => clearInterval(pollRef.current);
-  }, [data?.status, data?.registration_status]);
+  }, [data?.status, data?.registration_status, fetchChallan]);
 
   const handleStartPayment = async () => {
     try { await createPaymentIntent(id); setStep(1); }

@@ -119,6 +119,19 @@ MAP_ROUTING_URL = os.environ.get('MAP_ROUTING_URL', 'https://router.project-osrm
 MAP_GEOCODING_URL = os.environ.get('MAP_GEOCODING_URL', 'https://nominatim.openstreetmap.org').rstrip('/')
 MAP_GEOCODING_USER_AGENT = os.environ.get('MAP_GEOCODING_USER_AGENT', 'FAST-Transport/1.0')
 
+# ── Crime-risk map (separate from student Incident reports) ────────────────
+# The feed must be an institution-approved/licensed GeoJSON or JSON endpoint;
+# no public endpoint is assumed because CPLC/Sindh Police publish aggregate
+# statistics rather than geocoded events.
+CRIME_RISK_FEED_URL = os.environ.get('CRIME_RISK_FEED_URL', '').strip()
+CRIME_RISK_FEED_TOKEN = os.environ.get('CRIME_RISK_FEED_TOKEN', '').strip()
+CRIME_RISK_FEED_SOURCE_NAME = os.environ.get('CRIME_RISK_FEED_SOURCE_NAME', 'external-crime-feed')
+CRIME_RISK_WINDOW_DAYS = int(os.environ.get('CRIME_RISK_WINDOW_DAYS', '90'))
+CRIME_RISK_CELL_DEGREES = float(os.environ.get('CRIME_RISK_CELL_DEGREES', '0.005'))
+# min_lat,min_lng,max_lat,max_lng; keep the extent limited to the Karachi
+# service area so a misconfigured feed cannot create a world-sized grid.
+CRIME_RISK_BBOX = os.environ.get('CRIME_RISK_BBOX', '24.60,66.70,25.35,67.50')
+
 # ── CORS ──────────────────────────────────────────────────────────────────────
 # Set in dev.py / prod.py — never allow all in base.
 CORS_ALLOW_ALL_ORIGINS = False

@@ -10,6 +10,7 @@ from .views import download_transport_card
 from .views import BusLocationPingCreateView, IncidentViewSet, approved_incidents
 from .views import eligible_route_stops
 from .views import resolve_map_location, preview_route_geometry
+from .views import crime_risk_zones
 router = DefaultRouter()
 
 # Existing ViewSets
@@ -59,4 +60,5 @@ urlpatterns = [
     path("registration/eligible-route-stops/", eligible_route_stops, name="eligible-route-stops"),
     path("admin/maps/location/", resolve_map_location, name="resolve-map-location"),
     path("admin/maps/route-preview/", preview_route_geometry, name="preview-route-geometry"),
+    path("crime-risk/zones/", crime_risk_zones, name="crime-risk-zones"),
 ] + router.urls  # Router LAST

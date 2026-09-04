@@ -22,6 +22,7 @@ from .models import (
     TransportRegistration,
     BusLocationPing,
     Incident,
+    CrimeRiskZone,
 )
 
 class UserSerializer(serializers.ModelSerializer):
@@ -39,6 +40,17 @@ class UserSerializer(serializers.ModelSerializer):
     def get_full_name(self, obj):
         name = f"{obj.first_name} {obj.last_name}".strip()
         return name if name else obj.username
+
+
+class CrimeRiskZoneSerializer(serializers.ModelSerializer):
+    """Public, aggregated representation; raw external crime events stay server-side."""
+
+    class Meta:
+        model = CrimeRiskZone
+        fields = [
+            "zone_id", "geometry", "current_score", "current_level",
+            "confidence", "source_updated_at", "algorithm_version",
+        ]
 
 
 class StudentProfileSerializer(serializers.ModelSerializer):

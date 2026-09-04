@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import PageShell, { PageTitle } from "../../components/PageShell";
 import Table from "../../components/Table";
-import { ConfirmModal, FormModal, Pill, FormCard, Field, inputStyle, selectStyle } from "../../components/ui";
+import { ConfirmModal, FormModal, Pill, FormCard, Field } from "../../components/ui";
+import { inputStyle, selectStyle } from "../../styles/formStyles";
 import { colors, btn } from "../../theme";
 import { getSemesters, createSemester, updateSemester, deleteSemester } from "../../services/transportService";
 

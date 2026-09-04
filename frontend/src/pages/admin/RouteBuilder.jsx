@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import PageShell, { ContentCard, PageTitle } from "../../components/PageShell";
 import Table from "../../components/Table";
-import { Banner, Spinner, inputStyle, Pill, ConfirmModal, FormModal, Field, SectionBlock, DetailRow, selectStyle } from "../../components/ui";
+import { Banner, Spinner, Pill, ConfirmModal, FormModal, Field, SectionBlock, DetailRow } from "../../components/ui";
+import { inputStyle, selectStyle } from "../../styles/formStyles";
 import { btn, colors } from "../../theme";
 import RouteMap from "../../components/maps/RouteMap";
 import StopLocationPicker from "../../components/maps/StopLocationPicker";
@@ -20,6 +21,8 @@ const statusVariant = (status) => {
 
 const statusLabel = (status) =>
   status === "payment_submitted" ? "Payment Submitted" : status;
+
+const EMPTY_STUDENTS = [];
 
 const stopCardStyle = {
   display: "grid",
@@ -278,7 +281,7 @@ export default function RouteBuilder() {
   });
   const availableStops = filteredStops.filter((s) => !selectedStopIds.has(Number(s.id)));
 
-  const students = overview?.students ?? [];
+  const students = overview?.students || EMPTY_STUDENTS;
   const visibleStudents = useMemo(() => {
     const q = studentSearch.trim().toLowerCase();
     return students.filter((s) => {
@@ -296,7 +299,6 @@ export default function RouteBuilder() {
     });
   }, [students, statusFilter, studentSearch]);
 
-  const selectionMap = useMemo(() => [{ id: "available", name: "Available stops", description: "", geometry: { type: "LineString", coordinates: [] }, stops: allStops.map((stop) => ({ ...stop, stop_order: "" })) }], [allStops]);
   const previewMap = useMemo(() => route ? [{ ...route, stops: selectedStops, geometry: { type: "LineString", coordinates: selectedStops.map((stop) => [Number(stop.longitude), Number(stop.latitude)]) } }] : [], [route, selectedStops]);
 
   const handleRouteMetaChange = (e) => {

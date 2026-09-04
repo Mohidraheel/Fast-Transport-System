@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import PageShell, { PageTitle } from "../../components/PageShell";
-import { Spinner, Pill, Banner, inputStyle } from "../../components/ui";
+import { Spinner, Pill, Banner } from "../../components/ui";
+import { inputStyle } from "../../styles/formStyles";
 import { btn, colors, radius, fonts } from "../../theme";
 import {
   listAllRouteChangeRequests,

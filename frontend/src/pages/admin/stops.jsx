@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import PageShell, { PageTitle } from "../../components/PageShell";
 import Table from "../../components/Table";
-import { ConfirmModal, FormModal, FormCard, Field, inputStyle } from "../../components/ui";
+import { ConfirmModal, FormModal, FormCard, Field } from "../../components/ui";
+import { inputStyle } from "../../styles/formStyles";
 import { btn } from "../../theme";
 import { getStops, createStop, updateStop, deleteStop } from "../../services/transportService";
 import StopLocationPicker from "../../components/maps/StopLocationPicker";

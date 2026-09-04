@@ -116,10 +116,11 @@ export default function StudentIncidents() {
     return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } };
   }, []);
 
+  const { latitude, longitude, radius_meters, severity } = form;
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
-    const { latitude, longitude, radius_meters, severity } = form;
     const src = map.getSource("incident-preview");
     if (!src) return;
     if (!latitude || !longitude) { src.setData({ type: "FeatureCollection", features: [] }); return; }
@@ -127,7 +128,7 @@ export default function StudentIncidents() {
     src.setData(buildCircleGeoJSON(longitude, latitude, radius_meters));
     map.setPaintProperty("incident-preview-fill",   "fill-color", color);
     map.setPaintProperty("incident-preview-border", "line-color", color);
-  }, [form.latitude, form.longitude, form.radius_meters, form.severity]);
+  }, [latitude, longitude, radius_meters, severity]);
 
   const handleChange = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
 

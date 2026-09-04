@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import PageShell, { PageTitle } from "../../components/PageShell";
 import Table from "../../components/Table";
-import { ConfirmModal, FormModal, FormCard, Field, inputStyle, selectStyle } from "../../components/ui";
+import { ConfirmModal, FormModal, FormCard, Field } from "../../components/ui";
+import { inputStyle, selectStyle } from "../../styles/formStyles";
 import { btn } from "../../theme";
 import { getRoutes, getStops, getRouteStops, createRouteStop, updateRouteStop, deleteRouteStop } from "../../services/transportService";
 
