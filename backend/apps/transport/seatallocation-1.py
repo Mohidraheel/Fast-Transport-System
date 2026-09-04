@@ -24,28 +24,15 @@ from .models import (
     RouteAssignment,
     RouteStop,
     TransportRegistration,
-    FeeVerification,
     Challan,
     Notification,
 )
 
-# A held seat is normally payable until the semester's registration deadline.
-# But a seat freed close to (or after) that deadline would leave the promoted
-# student no usable time, so they always get at least this many days.
-SEAT_OFFER_GRACE_DAYS = 5
+# How long a promoted student has to pay before the seat passes on.
+SEAT_OFFER_HOURS = 48
 
-# Fallback when a semester has no deadline set at all.
-SEAT_OFFER_HOURS = SEAT_OFFER_GRACE_DAYS * 24
-
-# Last-resort fee if a semester somehow has none set. The real amount lives on
-# Semester.transport_fee, which an admin controls.
-DEFAULT_FEE_AMOUNT = 5000
-
-
-def fee_for_semester(semester):
-    """The transport fee an admin set for this semester."""
-    amount = getattr(semester, "transport_fee", None)
-    return amount if amount else DEFAULT_FEE_AMOUNT
+# Default transport fee, mirroring the amount used at registration.
+DEFAULT_FEE_AMOUNT = 45000
 
 
 # ── Promotion suppression ────────────────────────────────────────────────────
@@ -174,23 +161,6 @@ def pick_route_for_stop(stop, semester):
 
 # ── Challan issuing ──────────────────────────────────────────────────────────
 
-def compute_payment_due(semester, now=None):
-    """
-    When must this student pay?
-
-    The semester deadline, or SEAT_OFFER_GRACE_DAYS from now — whichever is
-    later. So a student promoted a month early pays by the deadline, while one
-    promoted two days before it still gets a full grace period rather than an
-    unusable window.
-    """
-    now = now or timezone.now()
-    grace = now + timedelta(days=SEAT_OFFER_GRACE_DAYS)
-    deadline = getattr(semester, "registration_deadline", None)
-    if deadline is None:
-        return grace
-    return max(deadline, grace)
-
-
 def issue_challan(transport_registration, amount=None):
     """
     Create (or refresh) the challan for a held seat and start the payment clock.
@@ -198,29 +168,19 @@ def issue_challan(transport_registration, amount=None):
     Only ever called once a seat exists — this is the guarantee that nobody
     pays for a seat they do not have.
     """
-    semester = transport_registration.semester
-    due_at = compute_payment_due(semester)
-    fee = amount or fee_for_semester(semester)
-
+    due_at = timezone.now() + timedelta(hours=SEAT_OFFER_HOURS)
     challan, created = Challan.objects.get_or_create(
         registration=transport_registration,
         student=transport_registration.student,
         defaults={
-            "amount": fee,
+            "amount": amount or transport_registration.fee_amount or DEFAULT_FEE_AMOUNT,
             "status": "unpaid",
             "payment_due_at": due_at,
         },
     )
     if not created and challan.status != "paid":
-        # Keep an unpaid challan in step with the current fee and deadline.
-        challan.amount = fee
         challan.payment_due_at = due_at
-        challan.save(update_fields=["amount", "payment_due_at"])
-
-    if transport_registration.fee_amount != fee:
-        transport_registration.fee_amount = fee
-        transport_registration.save(update_fields=["fee_amount"])
-
+        challan.save(update_fields=["payment_due_at"])
     return challan, due_at
 
 
@@ -228,31 +188,6 @@ def _transport_registration_for(registration):
     return TransportRegistration.objects.filter(
         student=registration.student, semester=registration.semester
     ).order_by("-created_at").first()
-
-
-def payment_settled(registration):
-    """
-    Has this student actually paid for the seat?
-
-    Holding a seat is not the same as owning it: until the fee is paid the hold
-    can still expire. Reporting such a seat as "Confirmed" contradicts the
-    countdown shown to the student, so status is derived from payment instead
-    of being set optimistically at allocation time.
-    """
-    if FeeVerification.objects.filter(
-        student=registration.student,
-        semester=registration.semester,
-        is_verified=True,
-    ).exists():
-        return True
-
-    transport_registration = _transport_registration_for(registration)
-    if transport_registration and Challan.objects.filter(
-        registration=transport_registration, status="paid"
-    ).exists():
-        return True
-
-    return False
 
 
 # ── Allocation ───────────────────────────────────────────────────────────────
@@ -289,19 +224,13 @@ def allocate_seat_on_assignment(registration, assignment):
 
     _remove_waitlist_entry(registration)
 
-    settled = payment_settled(registration)
-    registration.status = "Confirmed" if settled else "Seat Held"
+    registration.status = "Confirmed"
     registration.save(update_fields=["status", "updated_at"])
 
     Notification.objects.create(
         user=registration.student.user,
         title="Seat Allocation Update",
-        message=(
-            f"Your seat has been allocated. Seat No: {seat_number}"
-            if settled else
-            f"Seat No: {seat_number} is being held for you. It is confirmed "
-            f"once the transport fee is paid."
-        ),
+        message=f"Your seat has been allocated. Seat No: {seat_number}",
         type="info",
     )
 
@@ -461,7 +390,7 @@ def promote_next_from_waitlist(route, semester):
     seat = SeatAllocation.objects.filter(registration=registration).first()
     deadline_text = (
         f" Please pay by {timezone.localtime(due_at).strftime('%d %b %Y, %H:%M')} "
-        f"or the seat will pass to the next student on the list."
+        f"({SEAT_OFFER_HOURS} hours) or the seat will pass to the next student."
         if due_at else ""
     )
     Notification.objects.create(

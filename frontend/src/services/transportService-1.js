@@ -130,6 +130,3 @@ export const cancelRegistration = (id) =>
 export const getWaitlistStatus = () =>
   api.get("/api/transport-registrations/waitlist-status/");
 export const getWaitlist = () => api.get("/api/waitlist/");
-export const getWaitlistOverview = () => api.get("/api/waitlist/overview/");
-export const fillEmptySeats = (routeId) =>
-  api.post("/api/waitlist/fill-empty-seats/", routeId ? { route_id: routeId } : {});

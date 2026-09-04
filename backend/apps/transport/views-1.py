@@ -97,7 +97,6 @@ from .seatallocation import (
     release_seat,
     waitlist_summary,
     reindex_waitlist,
-    promote_next_from_waitlist,
     SEAT_OFFER_HOURS,
 )
 
@@ -563,13 +562,8 @@ def eligible_route_stops(request):
 
     if not semester:
         return Response({"detail": "No active semester found."}, status=status.HTTP_404_NOT_FOUND)
-    if not semester.accepts_registrations:
-        detail = (
-            "The registration deadline for this semester has passed."
-            if semester.deadline_passed
-            else "Registration is not open for this semester."
-        )
-        return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
+    if not semester.is_active or not semester.registration_open:
+        return Response({"detail": "Registration is not open for this semester."}, status=status.HTTP_400_BAD_REQUEST)
 
     active_assignment_routes = RouteAssignment.objects.filter(
         semester=semester, is_active=True, route__is_active=True
@@ -847,12 +841,8 @@ class TransportRegistrationViewSet(viewsets.ModelViewSet):
 
         if not route_stop.route.is_active or route_stop.route.status != "published":
             raise ValidationError("No route found for this stop")
-        if not semester.accepts_registrations:
-            raise ValidationError({"semester_id": (
-                "The registration deadline for this semester has passed."
-                if semester.deadline_passed
-                else "Registration is not open for this semester."
-            )})
+        if not semester.is_active or not semester.registration_open:
+            raise ValidationError({"semester_id": "Registration is not open for this semester."})
 
         registration = serializer.save(
             student=profile,
@@ -1160,149 +1150,11 @@ class WaitlistViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrReadOnly] # Admin full access, Students read only
 
     def get_queryset(self):
-        # Scope on staff status, not group membership: a student who was never
-        # added to the "Student" group would otherwise read every other
-        # student's queue entry.
         user = self.request.user
-        base = Waitlist.objects.select_related(
-            "registration__student__user",
-            "registration__route",
-            "registration__stop",
-        )
-        if user.is_staff:
-            return base
-        profile = StudentProfile.objects.filter(user=user).first()
-        if not profile:
-            return Waitlist.objects.none()
-        return base.filter(registration__student=profile)
-
-    @action(detail=False, methods=["get"], permission_classes=[IsAdmin])
-    def overview(self, request):
-        """
-        The waiting list grouped by route, with each route's seat position.
-
-        Queues are per route: position 1 on 6B is a different person from
-        position 1 on 5B, so they are never shown as one combined list.
-        """
-        semester = Semester.objects.filter(is_active=True).first()
-        if not semester:
-            return Response({"semester": None, "routes": []})
-
-        entries = (
-            Waitlist.objects.filter(
-                registration__semester=semester,
-                status__in=["waiting", "offered"],
-            )
-            .select_related(
-                "registration__student__user",
-                "registration__route",
-                "registration__stop",
-            )
-            .order_by("registration__route__name", "position", "added_at")
-        )
-
-        grouped = {}
-        for entry in entries:
-            registration = entry.registration
-            route = registration.route
-            if route is None:
-                continue
-            grouped.setdefault(route.id, {"route": route, "entries": []})
-            grouped[route.id]["entries"].append(entry)
-
-        # Include routes with free seats but nobody queued, so an admin can see
-        # capacity sitting idle.
-        for assignment in RouteAssignment.objects.filter(
-            semester=semester, is_active=True
-        ).select_related("route"):
-            grouped.setdefault(assignment.route_id,
-                               {"route": assignment.route, "entries": []})
-
-        routes = []
-        for data in grouped.values():
-            route = data["route"]
-            assignments = RouteAssignment.objects.filter(
-                route=route, semester=semester, is_active=True
-            ).select_related("bus", "driver")
-
-            capacity = sum(a.bus.capacity for a in assignments)
-            occupied = SeatAllocation.objects.filter(
-                route_assignment__in=assignments
-            ).count()
-            free = max(capacity - occupied, 0)
-
-            routes.append({
-                "route_id": route.id,
-                "route_name": route.name,
-                "buses": [a.bus.bus_number for a in assignments],
-                "drivers": [a.driver.name for a in assignments],
-                "capacity": capacity,
-                "occupied": occupied,
-                "free_seats": free,
-                "queue_length": len(data["entries"]),
-                "queue": [
-                    {
-                        "id": entry.id,
-                        "position": entry.position,
-                        "status": entry.status,
-                        "roll_number": entry.registration.student.roll_number,
-                        "name": (
-                            f"{entry.registration.student.user.first_name} "
-                            f"{entry.registration.student.user.last_name}"
-                        ).strip() or entry.registration.student.user.username,
-                        "email": entry.registration.student.user.email,
-                        "phone": entry.registration.student.phone,
-                        "stop": entry.registration.stop.name if entry.registration.stop else None,
-                        "added_at": entry.added_at,
-                        "offer_expires_at": entry.offer_expires_at,
-                    }
-                    for entry in data["entries"]
-                ],
-            })
-
-        routes.sort(key=lambda item: item["route_name"])
-        return Response({"semester": str(semester), "routes": routes})
-
-    @action(detail=False, methods=["post"], permission_classes=[IsAdmin],
-            url_path="fill-empty-seats")
-    def fill_empty_seats(self, request):
-        """
-        Seat as many queued students as there is room for.
-
-        Promotion normally happens automatically when a seat is released, but
-        capacity can also appear without any seat being freed — an admin raises
-        a bus's capacity, or adds a second bus to a route. Nothing deletes a
-        SeatAllocation in those cases, so no signal fires. This closes that gap.
-        """
-        semester = Semester.objects.filter(is_active=True).first()
-        if not semester:
-            return Response({"detail": "No active semester."}, status=400)
-
-        route_id = request.data.get("route_id")
-        routes = Route.objects.filter(is_active=True)
-        if route_id:
-            routes = routes.filter(pk=route_id)
-
-        promoted = []
-        for route in routes:
-            # Keep promoting while seats remain and the queue is not empty.
-            while True:
-                registration = promote_next_from_waitlist(route, semester)
-                if registration is None:
-                    break
-                promoted.append({
-                    "route": route.name,
-                    "roll_number": registration.student.roll_number,
-                })
-
-        return Response({
-            "detail": (
-                f"Seated {len(promoted)} student(s) from the waiting list."
-                if promoted else
-                "No students could be seated — no free seats, or the queues are empty."
-            ),
-            "promoted": promoted,
-        })
+        if user.groups.filter(name="Student").exists():
+            student_profile = StudentProfile.objects.get(user=user)
+            return Waitlist.objects.filter(registration__student=student_profile)
+        return Waitlist.objects.all()
 
 
 class FeeVerificationViewSet(viewsets.ModelViewSet):
@@ -2074,31 +1926,6 @@ def get_challan(request, pk):
     data["registration_status"] = registration.status
     return Response(data)
 
-def _mark_seat_confirmed(profile, semester):
-    """
-    Payment received: a held seat becomes an owned one.
-
-    Clears the payment deadline and flips both registration records, so the
-    student never sees "Seat Held" with a countdown after they have paid.
-    """
-    semester_registration = SemesterRegistration.objects.filter(
-        student=profile, semester=semester
-    ).first()
-    if semester_registration and semester_registration.status != "Confirmed":
-        semester_registration.status = "Confirmed"
-        semester_registration.save(update_fields=["status", "updated_at"])
-
-    TransportRegistration.objects.filter(
-        student=profile, semester=semester
-    ).exclude(status="Cancelled").update(status="Approved")
-
-    Challan.objects.filter(
-        registration__student=profile,
-        registration__semester=semester,
-        status="paid",
-    ).update(payment_due_at=None)
-
-
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def pay_challan(request, pk):
@@ -2116,8 +1943,6 @@ def pay_challan(request, pk):
 
     challan.status = "paid"
     challan.save()
-
-    _mark_seat_confirmed(profile, challan.registration.semester)
 
     # Create or update FeeVerification record
     fee_verification, _ = FeeVerification.objects.get_or_create(
@@ -2436,8 +2261,6 @@ def verify_payment_otp(request, pk):
 
         challan.status = "paid"
         challan.save()
-
-        _mark_seat_confirmed(profile, registration.semester)
 
         FeeVerification.objects.get_or_create(
             student=profile,

@@ -29,27 +29,7 @@ class Semester(models.Model):
     end_date = models.DateField(default=timezone.now)
     is_active = models.BooleanField(default=False)
     registration_open = models.BooleanField(default=False)
-    # Admin-set cut-off. New registrations stop at this moment, and it is the
-    # normal payment deadline for a held seat. Null means no deadline, in which
-    # case registration_open is the only gate.
-    registration_deadline = models.DateTimeField(null=True, blank=True)
-    # The transport fee for this semester, set by an admin. Single source of
-    # truth: challans read it from here instead of each caller hardcoding an
-    # amount, which previously left 45000 in one place and 5000 in another.
-    transport_fee = models.DecimalField(max_digits=10, decimal_places=0, default=5000)
     created_at = models.DateTimeField(auto_now_add=True)
-
-    @property
-    def deadline_passed(self):
-        return (
-            self.registration_deadline is not None
-            and timezone.now() > self.registration_deadline
-        )
-
-    @property
-    def accepts_registrations(self):
-        """Open for new registrations: the flag is on AND the date has not passed."""
-        return self.is_active and self.registration_open and not self.deadline_passed
 
     def __str__(self):
         # Semester names are entered by hand and often already contain the year
