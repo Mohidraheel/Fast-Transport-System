@@ -1,10 +1,12 @@
 from django.contrib.auth.models import AnonymousUser, User
+from django.core.cache import cache
 from django.core.management import call_command
 from django.db import connection
 from django.test import TestCase
 from rest_framework.test import APIRequestFactory
 from rest_framework.test import APIClient
 from unittest.mock import Mock, patch
+import requests as req_lib
 
 from .permissions import IsAdmin, IsAdminOrReadOnly, IsStudent, IsStudentCreateOnly
 from .serializers import RouteAssignmentSerializer
@@ -261,6 +263,7 @@ class PermissionRulesTests(TestCase):
 
 class MapRouteApiTests(TestCase):
 	def setUp(self):
+		cache.clear()
 		self.client = APIClient()
 		self.admin = User.objects.create_user(username="map_admin", password="pass", is_staff=True)
 		self.student = User.objects.create_user(username="map_student", password="pass")
@@ -273,19 +276,73 @@ class MapRouteApiTests(TestCase):
 		self.stop = Stop.objects.create(name="Mapped Stop", latitude="24.921500", longitude="67.084700")
 		self.other_stop = Stop.objects.create(name="Second Stop", latitude="24.931500", longitude="67.094700")
 		self.route_stop = RouteStop.objects.create(route=self.route, stop=self.stop, stop_order=1)
+		RouteStop.objects.create(route=self.route, stop=self.other_stop, stop_order=2)
 		self.other_route_stop = RouteStop.objects.create(route=self.other_route, stop=self.stop, stop_order=1)
 		RouteAssignment.objects.create(
 			route=self.route, bus=Bus.objects.create(bus_number="MAP-1", capacity=10),
 			driver=Driver.objects.create(name="Map Driver"), semester=self.semester
 		)
 
-	def test_route_map_returns_geojson_fallback_for_valid_stops(self):
+	@patch("apps.transport.views.req_lib.get")
+	def test_route_map_reroutes_missing_geometry(self, mock_get):
+		mock_response = Mock()
+		mock_response.json.return_value = {"routes": [{"geometry": {"type": "LineString", "coordinates": [[67.0847, 24.9215], [67.09, 24.93], [67.0947, 24.9315]]}}]}
+		mock_get.return_value = mock_response
 		self.client.force_authenticate(user=self.student)
 		response = self.client.get("/api/routes/map/")
 		self.assertEqual(response.status_code, 200)
 		route = next(item for item in response.data["routes"] if item["id"] == self.route.id)
-		self.assertEqual(route["geometry"]["type"], "LineString")
+		self.assertEqual(route["geometry"]["coordinates"], [[67.0847, 24.9215], [67.09, 24.93], [67.0947, 24.9315]])
 		self.assertEqual(route["stops"][0]["route_stop_id"], self.route_stop.id)
+
+	@patch("apps.transport.views.req_lib.get")
+	def test_route_map_retries_a_saved_straight_line(self, mock_get):
+		self.route.geometry = {"type": "LineString", "coordinates": [[67.0847, 24.9215], [67.0947, 24.9315]]}
+		self.route.save(update_fields=["geometry"])
+		mock_response = Mock()
+		mock_response.json.return_value = {"routes": [{"geometry": {"type": "LineString", "coordinates": [[67.0847, 24.9215], [67.09, 24.93], [67.0947, 24.9315]]}}]}
+		mock_get.return_value = mock_response
+		self.client.force_authenticate(user=self.student)
+		response = self.client.get(f"/api/routes/{self.route.id}/map-detail/")
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["geometry"]["coordinates"], [[67.0847, 24.9215], [67.09, 24.93], [67.0947, 24.9315]])
+
+	@patch("apps.transport.views.req_lib.get")
+	def test_route_map_retries_a_rounded_straight_line(self, mock_get):
+		self.route.geometry = {"type": "LineString", "coordinates": [[67.0847, 24.9215], [67.0897, 24.9265], [67.0947, 24.9315]]}
+		self.route.save(update_fields=["geometry"])
+		mock_response = Mock()
+		mock_response.json.return_value = {"routes": [{"geometry": {"type": "LineString", "coordinates": [[67.0847, 24.9215], [67.09, 24.93], [67.0947, 24.9315]]}}]}
+		mock_get.return_value = mock_response
+		self.client.force_authenticate(user=self.student)
+		response = self.client.get(f"/api/routes/{self.route.id}/map-detail/")
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["geometry"]["coordinates"], [[67.0847, 24.9215], [67.09, 24.93], [67.0947, 24.9315]])
+
+	@patch("apps.transport.views.req_lib.get")
+	def test_route_preview_retries_after_a_provider_failure(self, mock_get):
+		self.client.force_authenticate(user=self.admin)
+		mock_get.side_effect = req_lib.RequestException
+		fallback = self.client.post("/api/admin/maps/route-preview/", {"stop_ids": [self.stop.id, self.other_stop.id]}, format="json")
+		self.assertEqual(fallback.data["source"], "fallback")
+
+		mock_response = Mock()
+		mock_response.json.return_value = {"routes": [{"geometry": {"type": "LineString", "coordinates": [[67.0847, 24.9215], [67.09, 24.93], [67.0947, 24.9315]]}}]}
+		mock_get.side_effect = None
+		mock_get.return_value = mock_response
+		routed = self.client.post("/api/admin/maps/route-preview/", {"stop_ids": [self.stop.id, self.other_stop.id]}, format="json")
+		self.assertEqual(routed.data["source"], "provider")
+		self.assertEqual(mock_get.call_count, 2)
+
+	@patch("apps.transport.views.req_lib.get")
+	def test_eligible_route_stops_include_road_geometry(self, mock_get):
+		mock_response = Mock()
+		mock_response.json.return_value = {"routes": [{"geometry": {"type": "LineString", "coordinates": [[67.0847, 24.9215], [67.09, 24.93], [67.0947, 24.9315]]}}]}
+		mock_get.return_value = mock_response
+		self.client.force_authenticate(user=self.student)
+		response = self.client.get(f"/api/registration/eligible-route-stops/?semester={self.semester.id}")
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["route_geometries"][self.route.id]["coordinates"], [[67.0847, 24.9215], [67.09, 24.93], [67.0947, 24.9315]])
 
 	def test_registration_uses_explicit_route_stop_when_stop_is_shared(self):
 		self.client.force_authenticate(user=self.student)

@@ -1,28 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import PageShell, { ContentCard, PageTitle } from "../../components/PageShell";
-import Table from "../../components/Table";
-import { Banner, Spinner, Pill, ConfirmModal, FormModal, Field, SectionBlock, DetailRow } from "../../components/ui";
-import { inputStyle, selectStyle } from "../../styles/formStyles";
+import { Banner, Spinner, Pill, ConfirmModal, FormModal, Field } from "../../components/ui";
+import { inputStyle } from "../../styles/formStyles";
 import { btn, colors } from "../../theme";
 import RouteMap from "../../components/maps/RouteMap";
 import StopLocationPicker from "../../components/maps/StopLocationPicker";
-import { getRouteMapDetail, getStops, saveRouteBuilder, createStop, getRouteOverview, updateRoute, updateStop } from "../../services/transportService";
+import { getRouteMapDetail, getStops, saveRouteBuilder, createStop, updateRoute, updateStop } from "../../services/transportService";
 import { routeGeometry } from "../../services/routingService";
-
-const statusVariant = (status) => {
-  switch (status) {
-    case "Approved":          return "success";
-    case "Rejected":          return "danger";
-    case "payment_submitted": return "info";
-    default:                  return "warning";
-  }
-};
-
-const statusLabel = (status) =>
-  status === "payment_submitted" ? "Payment Submitted" : status;
-
-const EMPTY_STUDENTS = [];
 
 const stopCardStyle = {
   display: "grid",
@@ -78,7 +63,6 @@ export default function RouteBuilder() {
   const { id } = useParams();
   const [route, setRoute] = useState(null);
   const [routeMeta, setRouteMeta] = useState({ name: "", description: "" });
-  const [overview, setOverview] = useState(null);
   const [allStops, setAllStops] = useState([]);
   const [selectedStops, setSelectedStops] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -96,21 +80,19 @@ export default function RouteBuilder() {
   const [editStopForm, setEditStopForm] = useState({ name: "", latitude: "", longitude: "", address: "" });
   const [creatingStop, setCreatingStop] = useState(false);
   const [savingEditStop, setSavingEditStop] = useState(false);
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [studentSearch, setStudentSearch] = useState("");
+  const [previewGeometry, setPreviewGeometry] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    Promise.all([getRouteMapDetail(id), getStops(), getRouteOverview(id)])
-      .then(([routeResponse, stopsResponse, overviewResponse]) => {
+    Promise.all([getRouteMapDetail(id), getStops()])
+      .then(([routeResponse, stopsResponse]) => {
         if (cancelled) return;
         const routeData = routeResponse.data;
         setRoute(routeData);
         setRouteMeta({ name: routeData.name || "", description: routeData.description || "" });
-        setOverview(overviewResponse.data);
         const orderedStops = routeData.stops || [];
         setSelectedStops(orderedStops);
         setExpandedStops(new Set(orderedStops.map((stop) => Number(stop.id))));
@@ -281,25 +263,20 @@ export default function RouteBuilder() {
   });
   const availableStops = filteredStops.filter((s) => !selectedStopIds.has(Number(s.id)));
 
-  const students = overview?.students || EMPTY_STUDENTS;
-  const visibleStudents = useMemo(() => {
-    const q = studentSearch.trim().toLowerCase();
-    return students.filter((s) => {
-      if (statusFilter !== "All") {
-        if (statusFilter === "Pending") {
-          if (s.status !== "Pending" && s.status !== "payment_submitted") return false;
-        } else if (s.status !== statusFilter) {
-          return false;
-        }
-      }
-      if (!q) return true;
-      return [s.roll_number, s.name, s.email, s.department, s.batch, s.stop]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q));
+  useEffect(() => {
+    let cancelled = false;
+    if (selectedStops.length < 2) {
+      setPreviewGeometry(null);
+      return undefined;
+    }
+    setPreviewGeometry(null);
+    routeGeometry(selectedStops).then((geometry) => {
+      if (!cancelled) setPreviewGeometry(geometry);
     });
-  }, [students, statusFilter, studentSearch]);
+    return () => { cancelled = true; };
+  }, [selectedStops]);
 
-  const previewMap = useMemo(() => route ? [{ ...route, stops: selectedStops, geometry: { type: "LineString", coordinates: selectedStops.map((stop) => [Number(stop.longitude), Number(stop.latitude)]) } }] : [], [route, selectedStops]);
+  const previewMap = useMemo(() => route ? [{ ...route, stops: selectedStops, geometry: previewGeometry || { type: "LineString", coordinates: selectedStops.map((stop) => [Number(stop.longitude), Number(stop.latitude)]) } }] : [], [route, selectedStops, previewGeometry]);
 
   const handleRouteMetaChange = (e) => {
     const { name, value } = e.target;
@@ -352,56 +329,8 @@ export default function RouteBuilder() {
     } finally { setSaving(false); }
   };
 
-  const exportCsv = () => {
-    const headers = [
-      "Roll Number", "Name", "Email", "Department", "Batch",
-      "Phone", "Stop", "Seat", "Status", "Paid",
-    ];
-    const escape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const lines = [
-      headers.join(","),
-      ...visibleStudents.map((s) => [
-        s.roll_number, s.name, s.email, s.department, s.batch,
-        s.phone, s.stop, s.seat_number, statusLabel(s.status),
-        s.is_paid ? "Yes" : "No",
-      ].map(escape).join(",")),
-    ];
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `route-${overview?.route?.name ?? id}-students.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   if (loading) return <PageShell role="staff" title="Route Builder"><Spinner /></PageShell>;
   if (error) return <PageShell role="staff" title="Route Builder"><Banner variant="danger">{error}</Banner></PageShell>;
-
-  const muted = { color: colors.textMuted };
-  const cardHeading = { margin: "0 0 12px", fontSize: 15, fontWeight: 600 };
-  const statGrid = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 20 };
-  const twoCol = { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16, marginBottom: 20 };
-  const toolbar = { display: "flex", gap: 12, alignItems: "center", marginBottom: 16, flexWrap: "wrap" };
-
-  const Stat = ({ label, value, tone }) => (
-    <div style={{ padding: "12px 14px", border: `1px solid ${colors.borderLight}`, borderRadius: 8, background: "#fff" }}>
-      <div style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: tone || colors.textPrimary }}>{value}</div>
-    </div>
-  );
-
-  const studentColumns = [
-    { key: "roll_number", label: "Roll Number", render: (r) => <strong>{r.roll_number}</strong> },
-    { key: "name", label: "Name" },
-    { key: "department", label: "Dept" },
-    { key: "batch", label: "Batch" },
-    { key: "stop", label: "Stop" },
-    { key: "phone", label: "Phone" },
-    { key: "seat_number", label: "Seat", render: (r) => (r.seat_number != null ? r.seat_number : <span style={muted}>—</span>) },
-    { key: "status", label: "Status", render: (r) => <Pill label={statusLabel(r.status)} variant={statusVariant(r.status)} /> },
-    { key: "is_paid", label: "Fee", render: (r) => <Pill label={r.is_paid ? "Paid" : "Unpaid"} variant={r.is_paid ? "success" : "neutral"} /> },
-  ];
 
   return (
     <PageShell role="staff" title="Route Manager">
@@ -697,101 +626,6 @@ export default function RouteBuilder() {
         </ContentCard>
       </div>
 
-      {/* ─── Route Overview Section (from detail page) ───────────────────────── */}
-      {overview && (
-        <>
-          <PageTitle style={{ marginTop: 32, marginBottom: 12 }} sub={overview.route.description}>
-            Route Details
-          </PageTitle>
-
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "20px" }}>
-            <Pill label={overview.route.is_active ? "Active" : "Inactive"} variant={overview.route.is_active ? "success" : "neutral"} />
-            {overview.semester && <Pill label={overview.semester} variant="info" />}
-          </div>
-
-          {/* Stats */}
-          <div style={statGrid}>
-            <Stat label="Registered" value={overview.stats.registered} />
-            <Stat label="Approved" value={overview.stats.approved} tone={colors.successText} />
-            <Stat label="Pending" value={overview.stats.pending} tone={colors.warningText} />
-            <Stat label="Rejected" value={overview.stats.rejected} tone={colors.dangerText} />
-            <Stat label="Bus Capacity" value={overview.stats.capacity ?? "—"} />
-            <Stat label="Seats Left" value={overview.stats.seats_left ?? "—"} tone={overview.stats.seats_left != null && overview.stats.seats_left <= 0 ? colors.dangerText : undefined} />
-          </div>
-
-          {/* Driver + Bus */}
-          {overview.assignment ? (
-            <div style={twoCol}>
-              <ContentCard style={{ marginBottom: 0 }}>
-                <h3 style={cardHeading}>Driver</h3>
-                <DetailRow label="Name" value={overview.assignment.driver.name} />
-                <DetailRow label="Phone" value={overview.assignment.driver.phone} />
-                <DetailRow label="CNIC" value={overview.assignment.driver.cnic} />
-                <DetailRow label="License No" value={overview.assignment.driver.license_no} />
-                <DetailRow label="Address" value={overview.assignment.driver.address} />
-                <div style={{ marginTop: "12px" }}>
-                  <Pill label={overview.assignment.driver.is_available ? "Available" : "Unavailable"} variant={overview.assignment.driver.is_available ? "success" : "neutral"} />
-                </div>
-              </ContentCard>
-
-              <ContentCard style={{ marginBottom: 0 }}>
-                <h3 style={cardHeading}>Bus</h3>
-                <DetailRow label="Bus Number" value={overview.assignment.bus.bus_number} />
-                <DetailRow label="Model" value={overview.assignment.bus.model} />
-                <DetailRow label="Capacity" value={overview.assignment.bus.capacity} />
-                <DetailRow label="Semester" value={overview.assignment.semester} />
-                <div style={{ marginTop: "12px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  <Pill label={overview.assignment.bus.is_active ? "Active" : "Inactive"} variant={overview.assignment.bus.is_active ? "success" : "neutral"} />
-                  {overview.assignment.bus.is_off_route && <Pill label="Off Route" variant="danger" />}
-                </div>
-              </ContentCard>
-            </div>
-          ) : (
-            <Banner variant="warning">
-              No bus or driver is assigned to this route yet. Create an assignment in the Fleet menu.
-            </Banner>
-          )}
-
-          {/* Registered Students */}
-          <SectionBlock title="Registered Students" sub="All registrations on this route for the current semester.">
-            <div style={toolbar}>
-              <input
-                placeholder="Search roll number, name, email, stop…"
-                value={studentSearch}
-                onChange={(e) => setStudentSearch(e.target.value)}
-                style={{ ...inputStyle, maxWidth: "320px" }}
-              />
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                style={{ ...selectStyle, maxWidth: "200px" }}
-              >
-                <option value="All">All statuses</option>
-                <option value="Approved">Approved</option>
-                <option value="Pending">Pending / Payment Submitted</option>
-                <option value="Rejected">Rejected</option>
-              </select>
-              <button
-                onClick={exportCsv}
-                style={{ ...btn.ghost, whiteSpace: "nowrap" }}
-                disabled={visibleStudents.length === 0}
-              >
-                Export CSV
-              </button>
-            </div>
-
-            <Table
-              columns={studentColumns}
-              rows={visibleStudents}
-              emptyMessage={
-                students.length === 0
-                  ? "No students are registered on this route yet."
-                  : "No students match the current filters."
-              }
-            />
-          </SectionBlock>
-        </>
-      )}
     </PageShell>
   );
 }

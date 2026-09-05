@@ -102,23 +102,27 @@ function RoutesPage() {
     {
       key: "name",
       label: "Name",
+      width: "25%",
       render: (row) => (
-        <Link to={`/admin/routes/${row.id}`} style={routeLinkStyle} title="View driver, bus and registered students">
+        <Link to={`/admin/routes/${row.id}`} style={routeLinkStyle} title="View route details and registered students">
           {row.name}
         </Link>
       ),
     },
-    { key: "description", label: "Description" },
+    { key: "description", label: "Description", width: "25%" },
     {
       key: "is_active", label: "Status",
+      width: "15%",
       render: (row) => <StatusBadge active={row.is_active} onClick={() => handleToggle(row.id, row.is_active)} />,
     },
     {
       key: "actions",
       label: "Actions",
+      width: "35%",
       render: (row) => (
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-          <Link to={`/admin/routes/${row.id}`} style={{ ...actionBtn, textDecoration: "none" }}>View/Edit</Link>
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-start" }}>
+          <Link to={`/admin/routes/${row.id}`} style={{ ...actionBtn, textDecoration: "none" }}>View Details</Link>
+          <Link to={`/admin/routes/${row.id}/edit`} style={{ ...actionBtn, textDecoration: "none" }}>Edit Route</Link>
           <button onClick={() => handleDelete(row)} style={{ ...btn.danger, padding: "7px 12px", fontSize: "12px" }}>Delete</button>
         </div>
       ),
@@ -179,7 +183,8 @@ function RoutesPage() {
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
                   <strong style={{ fontSize: 14 }}>{selectedRoute.name}</strong>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <Link to={`/admin/routes/${selectedRoute.id}`} style={routeLinkStyle}>View/Edit</Link>
+                    <Link to={`/admin/routes/${selectedRoute.id}`} style={routeLinkStyle}>View Details</Link>
+                    <Link to={`/admin/routes/${selectedRoute.id}/edit`} style={routeLinkStyle}>Edit Route</Link>
                   </div>
                 </div>
                 <p style={{ margin: 0, color: colors.textSecondary, fontSize: 13 }}>{selectedRoute.description || "No description provided."}</p>

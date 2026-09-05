@@ -124,14 +124,6 @@ function AdminRouteDetail() {
     },
   ];
 
-  const stopColumns = [
-    { key: "stop_order", label: "#" },
-    { key: "name", label: "Stop" },
-    { key: "address", label: "Address" },
-    { key: "morning_eta", label: "Morning ETA", render: (r) => r.morning_eta || <span style={muted}>—</span> },
-    { key: "evening_eta", label: "Evening ETA", render: (r) => r.evening_eta || <span style={muted}>—</span> },
-  ];
-
   // ── Loading / error ───────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -154,11 +146,14 @@ function AdminRouteDetail() {
     );
   }
 
-  const { route, assignment, stats, stops, semester } = data;
+  const { route, assignment, stats, semester } = data;
 
   return (
     <PageShell role="staff" title="Admin — Route Detail">
-      <Link to="/admin/routes" style={backLink}>← Back to Routes</Link>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <Link to="/admin/routes" style={{ ...backLink, marginBottom: 0 }}>← Back to Routes</Link>
+        <Link to={`/admin/routes/${id}/edit`} style={{ ...btn.ghost, textDecoration: "none" }}>Edit Route</Link>
+      </div>
 
       <PageTitle sub={route.description}>
         {route.name}
@@ -240,11 +235,6 @@ function AdminRouteDetail() {
           />
         </div>
       </ContentCard>
-
-      {/* ── Stops ─────────────────────────────────────────────────────────── */}
-      <SectionBlock title="Stops" sub="Ordered by pickup sequence.">
-        <Table columns={stopColumns} rows={stops} emptyMessage="No stops added to this route yet." />
-      </SectionBlock>
 
       {/* ── Students ──────────────────────────────────────────────────────── */}
       <SectionBlock

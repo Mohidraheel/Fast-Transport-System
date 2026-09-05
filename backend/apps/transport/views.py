@@ -241,11 +241,56 @@ def preview_route_geometry(request):
     if any(lng == 0 and lat == 0 for lng, lat in coordinates):
         raise ValidationError({"stop_ids": "Each selected stop needs a valid map location."})
 
-    geometry = {"type": "LineString", "coordinates": [[lng, lat] for lng, lat in coordinates]}
+    geometry, source = _road_geometry(coordinates)
+    return Response({"geometry": geometry, "source": source})
+
+
+def _is_line_string(geometry):
+    return (
+        isinstance(geometry, dict)
+        and geometry.get("type") == "LineString"
+        and isinstance(geometry.get("coordinates"), list)
+        and len(geometry["coordinates"]) >= 2
+    )
+
+
+def _is_straight_fallback(geometry, stop_coordinates):
+    if not _is_line_string(geometry) or len(stop_coordinates) < 2:
+        return False
+    try:
+        points = [(float(point[0]), float(point[1])) for point in geometry["coordinates"]]
+        start = (float(stop_coordinates[0][0]), float(stop_coordinates[0][1]))
+        end = (float(stop_coordinates[-1][0]), float(stop_coordinates[-1][1]))
+    except (TypeError, ValueError, IndexError):
+        return False
+
+    tolerance = 1e-5
+    if any(max(abs(point[index] - expected[index]) for index in (0, 1)) > tolerance
+           for point, expected in ((points[0], start), (points[-1], end))):
+        return False
+
+    delta_lng = end[0] - start[0]
+    delta_lat = end[1] - start[1]
+    length_squared = delta_lng ** 2 + delta_lat ** 2
+    if length_squared == 0:
+        return False
+    return all(
+        abs(delta_lng * (point[1] - start[1]) - delta_lat * (point[0] - start[0]))
+        <= tolerance * max(1, length_squared ** 0.5)
+        for point in points
+    )
+
+
+def _road_geometry(coordinates):
+    """Return a road line when available; never cache a straight-line fallback."""
+    fallback = {"type": "LineString", "coordinates": [[lng, lat] for lng, lat in coordinates]}
+    if len(coordinates) < 2:
+        return fallback, "fallback"
+
     cache_key = _map_cache_key("route", ";".join(f"{lng:.6f},{lat:.6f}" for lng, lat in coordinates))
     cached = cache.get(cache_key)
-    if cached is not None:
-        return Response({"geometry": cached, "source": "cache"})
+    if isinstance(cached, dict) and cached.get("source") == "provider" and _is_line_string(cached.get("geometry")):
+        return cached["geometry"], "cache"
     try:
         coordinate_path = ";".join(f"{lng},{lat}" for lng, lat in coordinates)
         response = req_lib.get(
@@ -256,12 +301,21 @@ def preview_route_geometry(request):
         response.raise_for_status()
         payload = response.json()
         routed_geometry = payload.get("routes", [{}])[0].get("geometry")
-        if isinstance(routed_geometry, dict) and routed_geometry.get("type") == "LineString":
-            geometry = routed_geometry
+        if _is_line_string(routed_geometry):
+            cache.set(cache_key, {"geometry": routed_geometry, "source": "provider"}, timeout=60 * 60 * 24 * 7)
+            return routed_geometry, "provider"
     except (req_lib.RequestException, ValueError, IndexError, AttributeError):
         pass
-    cache.set(cache_key, geometry, timeout=60 * 60 * 24 * 7)
-    return Response({"geometry": geometry, "source": "provider" if len(geometry["coordinates"]) > len(coordinates) else "fallback"})
+    return fallback, "fallback"
+
+
+def _display_route_geometry(route, fallback_geometry):
+    geometry = route.geometry if isinstance(route.geometry, dict) else None
+    # A previous provider outage may have persisted a rounded or interpolated
+    # stop-to-stop fallback. Treat any collinear fallback as stale.
+    if not _is_line_string(geometry) or _is_straight_fallback(geometry, fallback_geometry):
+        return _road_geometry(fallback_geometry)
+    return geometry, "stored"
 # a view — auth question first, see below
 class BusLocationPingCreateView(generics.CreateAPIView):
     queryset = BusLocationPing.objects.all()
@@ -327,9 +381,7 @@ class RouteViewSet(viewsets.ModelViewSet):
             if not (float(route_stop.stop.latitude) == 0 and float(route_stop.stop.longitude) == 0)
         ]
         fallback_geometry = [[stop["longitude"], stop["latitude"]] for stop in stops]
-        geometry = route.geometry if isinstance(route.geometry, dict) else None
-        if not geometry or geometry.get("type") != "LineString":
-            geometry = {"type": "LineString", "coordinates": fallback_geometry}
+        geometry, geometry_source = _display_route_geometry(route, fallback_geometry)
         return {
             "id": route.id,
             "name": route.name,
@@ -337,7 +389,7 @@ class RouteViewSet(viewsets.ModelViewSet):
             "status": route.status,
             "is_active": route.is_active,
             "geometry": geometry,
-            "geometry_is_cached": bool(route.geometry),
+            "geometry_is_cached": geometry_source in {"stored", "cache"},
             "stops": stops,
         }
 
@@ -613,7 +665,7 @@ def eligible_route_stops(request):
     active_assignment_routes = RouteAssignment.objects.filter(
         semester=semester, is_active=True, route__is_active=True
     ).values_list("route_id", flat=True)
-    route_stops = (
+    route_stops = list(
         RouteStop.objects.filter(
             route_id__in=active_assignment_routes,
             route__status="published",
@@ -622,8 +674,20 @@ def eligible_route_stops(request):
         .select_related("route", "stop")
         .order_by("route__name", "stop_order")
     )
+    stops_by_route = {}
+    for route_stop in route_stops:
+        if float(route_stop.stop.latitude) != 0 or float(route_stop.stop.longitude) != 0:
+            stops_by_route.setdefault(route_stop.route_id, []).append(route_stop)
+    route_geometries = {
+        route_id: _display_route_geometry(
+            stops[0].route,
+            [[float(stop.stop.longitude), float(stop.stop.latitude)] for stop in stops],
+        )[0]
+        for route_id, stops in stops_by_route.items()
+    }
     return Response({
         "semester": {"id": semester.id, "name": semester.name},
+        "route_geometries": route_geometries,
         "route_stops": [
             {
                 "id": route_stop.id,

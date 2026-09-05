@@ -11,6 +11,7 @@ function TransportRegistration() {
   const [registration, setRegistration] = useState(null);
   const [semesters, setSemesters] = useState([]);
   const [eligibleStops, setEligibleStops] = useState([]);
+  const [routeGeometries, setRouteGeometries] = useState({});
   const [selectedRouteStop, setSelectedRouteStop] = useState("");
   const [selectedSemester, setSelectedSemester] = useState("");
   const [loading, setLoading] = useState(false);
@@ -38,11 +39,13 @@ function TransportRegistration() {
 
   const loadEligibleStops = async (semesterId) => {
     setEligibleStops([]);
+    setRouteGeometries({});
     setSelectedRouteStop("");
     if (!semesterId) return;
     try {
       const response = await getEligibleRouteStops(semesterId);
       setEligibleStops(response.data.route_stops || []);
+      setRouteGeometries(response.data.route_geometries || {});
     } catch (err) {
       setMessage(err.response?.data?.detail || "No selectable route stops are available for this semester.");
     }
@@ -66,7 +69,7 @@ function TransportRegistration() {
   const status = registration?.status?.toLowerCase();
   const mapRoutes = Object.values(eligibleStops.reduce((groups, routeStop) => {
     const key = routeStop.route_id;
-    if (!groups[key]) groups[key] = { id: key, name: routeStop.route_name, description: routeStop.route_description, stops: [] };
+    if (!groups[key]) groups[key] = { id: key, name: routeStop.route_name, description: routeStop.route_description, geometry: routeGeometries[key], stops: [] };
     groups[key].stops.push({
       ...routeStop,
       route_stop_id: routeStop.id,

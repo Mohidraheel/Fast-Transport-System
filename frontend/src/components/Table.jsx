@@ -9,7 +9,7 @@ function Table({ columns, rows, emptyMessage = "No data available." }) {
           <thead>
             <tr>
               {columns.map((col) => (
-                <th key={col.key ?? col} style={styles.th}>
+                <th key={col.key ?? col} style={{ ...styles.th, ...(col.width ? { width: col.width } : {}), ...(col.key === "actions" ? styles.actionHeader : {}) }}>
                   {col.label ?? col}
                 </th>
               ))}
@@ -68,11 +68,11 @@ function TableRow({ row, columns, index }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {columns.map((col) => (
-        <td key={col.key ?? col} style={styles.td}>
-          {col.render ? col.render(row) : (row[col.key ?? col] ?? "—")}
-        </td>
-      ))}
+              {columns.map((col) => (
+                <td key={col.key ?? col} style={{ ...styles.td, ...(col.width ? { width: col.width } : {}), ...(col.key === "actions" ? styles.actionCell : {}) }}>
+                  {col.render ? col.render(row) : (row[col.key ?? col] ?? "—")}
+                </td>
+              ))}
     </tr>
   );
 }
@@ -118,6 +118,12 @@ const styles = {
     verticalAlign:"middle",
     color:       colors.textPrimary,
     fontSize:    "13.5px",
+  },
+  actionCell: {
+    textAlign: "left",
+  },
+  actionHeader: {
+    textAlign: "left",
   },
   emptyCell: {
     padding:   "48px 16px",
