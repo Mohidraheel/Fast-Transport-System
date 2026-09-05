@@ -34,11 +34,11 @@ function Toggle({ name, checked, onChange, label }) {
 
 function SemestersPage() {
   const [semesters, setSemesters] = useState([]);
-  const [form, setForm] = useState({ year: "", term: "", start_date: "", end_date: "", is_active: false, registration_open: false });
+  const [form, setForm] = useState({ year: "", term: "", start_date: "", end_date: "", registration_deadline: "", transport_fee: "5000", is_active: false, registration_open: false });
   const [pendingToggle, setPendingToggle] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [editingSemester, setEditingSemester] = useState(null);
-  const [editForm, setEditForm] = useState({ year: "", term: "", start_date: "", end_date: "" });
+  const [editForm, setEditForm] = useState({ year: "", term: "", start_date: "", end_date: "", registration_deadline: "", transport_fee: "" });
   const [savingEdit, setSavingEdit] = useState(false);
 
   const fetchSemesters = () =>
@@ -79,6 +79,11 @@ function SemestersPage() {
       term: semester.term || "",
       start_date: semester.start_date || "",
       end_date: semester.end_date || "",
+      // <input type="datetime-local"> wants "YYYY-MM-DDTHH:MM" with no zone.
+      registration_deadline: semester.registration_deadline
+        ? semester.registration_deadline.slice(0, 16)
+        : "",
+      transport_fee: semester.transport_fee ?? "",
     });
   };
 
@@ -99,6 +104,8 @@ function SemestersPage() {
         term: editForm.term,
         start_date: editForm.start_date,
         end_date: editForm.end_date,
+        registration_deadline: editForm.registration_deadline || null,
+        transport_fee: editForm.transport_fee === "" ? undefined : editForm.transport_fee,
         name: `${editForm.term} ${editForm.year}`,
       });
       setEditingSemester(null);
@@ -125,7 +132,7 @@ function SemestersPage() {
         Object.entries({ ...form, name: `${form.term} ${form.year}` }).filter(([, v]) => v !== "")
       );
       await createSemester(payload);
-      setForm({ year: "", term: "", start_date: "", end_date: "", is_active: false, registration_open: false });
+      setForm({ year: "", term: "", start_date: "", end_date: "", registration_deadline: "", transport_fee: "5000", is_active: false, registration_open: false });
       fetchSemesters();
     } catch (err) {
       alert(`Failed to add semester: ${JSON.stringify(err.response?.data || err.message)}`);
@@ -138,6 +145,19 @@ function SemestersPage() {
     { key: "term", label: "Term" },
     { key: "start_date", label: "Start Date" },
     { key: "end_date", label: "End Date" },
+    {
+      key: "transport_fee",
+      label: "Fee",
+      render: (row) => (row.transport_fee != null ? `PKR ${row.transport_fee}` : "—"),
+    },
+    {
+      key: "registration_deadline",
+      label: "Reg. Deadline",
+      render: (row) =>
+        row.registration_deadline
+          ? new Date(row.registration_deadline).toLocaleString()
+          : "—",
+    },
     {
       key: "is_active", label: "Active",
       render: (row) => (
@@ -221,6 +241,25 @@ function SemestersPage() {
           <Field label="End Date" required flex="0 1 150px">
             <input name="end_date" type="date" value={editForm.end_date} onChange={handleEditChange} style={inputStyle} />
           </Field>
+          <Field label="Transport Fee (PKR)" flex="0 1 160px">
+            <input
+              name="transport_fee"
+              type="number"
+              min="0"
+              value={editForm.transport_fee}
+              onChange={handleEditChange}
+              style={inputStyle}
+            />
+          </Field>
+          <Field label="Registration Deadline" flex="1 1 220px">
+            <input
+              name="registration_deadline"
+              type="datetime-local"
+              value={editForm.registration_deadline}
+              onChange={handleEditChange}
+              style={inputStyle}
+            />
+          </Field>
         </FormModal>
       )}
 
@@ -237,6 +276,26 @@ function SemestersPage() {
             <option value="Fall">Fall</option>
             <option value="Summer">Summer</option>
           </select>
+        </Field>
+        <Field label="Transport Fee (PKR)" flex="0 1 150px">
+          <input
+            name="transport_fee"
+            type="number"
+            min="0"
+            placeholder="5000"
+            value={form.transport_fee}
+            onChange={handleChange}
+            style={inputStyle}
+          />
+        </Field>
+        <Field label="Registration Deadline" flex="1 1 210px">
+          <input
+            name="registration_deadline"
+            type="datetime-local"
+            value={form.registration_deadline}
+            onChange={handleChange}
+            style={inputStyle}
+          />
         </Field>
         <Field label="Start Date" required flex="0 1 150px">
           <input name="start_date" type="date" value={form.start_date} onChange={handleChange} style={inputStyle} />

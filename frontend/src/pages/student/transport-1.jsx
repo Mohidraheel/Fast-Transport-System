@@ -79,14 +79,10 @@ function StudentTransport() {
   const canCancel =
     queue?.challan_status !== "paid" &&
     ["Waitlisted", "Seat Held", "Pending"].includes(queue?.status || "");
-  // queue.status comes from TransportRegistration and is the authoritative
-  // value ("Seat Held" / "Waitlisted" / "Approved"); the dashboard's
-  // active_registration is only a fallback for older data.
-  const effectiveStatus = queue?.status || active_registration?.status || "";
-  const normStatus = effectiveStatus.toLowerCase();
+  const normStatus = (active_registration?.status || "").toLowerCase();
   const hasSubmittedFee = Boolean(active_registration?.fee_submitted);
   const shouldShowPending = !seat && hasSubmittedFee && ["pending", "approved", "payment_submitted"].includes(normStatus);
-  const displayStatus = shouldShowPending ? pendingMsg : effectiveStatus;
+  const displayStatus = shouldShowPending ? pendingMsg : active_registration?.status;
   const hasFullAssignment = Boolean(profile && seat && active_registration?.route && active_registration?.bus);
 
   return (
@@ -144,13 +140,7 @@ function StudentTransport() {
             <DetailRow label="Status"   value={
               <Pill
                 label={displayStatus}
-                variant={
-                  ["approved", "confirmed"].includes(normStatus)
-                    ? "success"
-                    : ["rejected", "cancelled"].includes(normStatus)
-                      ? "danger"
-                      : "warning"
-                }
+                variant={normStatus === "approved" ? "success" : normStatus === "rejected" ? "danger" : "warning"}
               />
             } />
             {!seat && !waitlist_position && !hasSubmittedFee && (

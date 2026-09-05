@@ -60,7 +60,6 @@ from .models import (
     Challan,
     OTPVerification,
     Incident,
-    CrimeRiskZone,
 )
 
 from .serializers import (
@@ -86,7 +85,6 @@ from .serializers import (
     TransportRegistrationSerializer,
     BusLocationPingSerializer,
     IncidentSerializer,
-    CrimeRiskZoneSerializer,
 )
 
 from .seatallocation import (
@@ -99,59 +97,8 @@ from .seatallocation import (
     release_seat,
     waitlist_summary,
     reindex_waitlist,
-    promote_next_from_waitlist,
     SEAT_OFFER_HOURS,
 )
-from .crime_risk import _setting_bbox
-
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def crime_risk_zones(request):
-    """Return generated, aggregated crime-risk cells for the map viewport.
-
-    This endpoint intentionally queries only ExternalCrimeEvent-derived
-    snapshots through CrimeRiskZone. Student Incident reports are unrelated.
-    """
-    raw_bbox = request.query_params.get("bbox", "")
-    if raw_bbox:
-        try:
-            values = [float(value) for value in raw_bbox.split(",")]
-            if len(values) != 4:
-                raise ValueError
-            min_lng, min_lat, max_lng, max_lat = values
-            if min_lng >= max_lng or min_lat >= max_lat:
-                raise ValueError
-        except ValueError:
-            return Response({"detail": "bbox must be minLng,minLat,maxLng,maxLat."}, status=400)
-    else:
-        min_lat, min_lng, max_lat, max_lng = _setting_bbox()
-
-    zones = CrimeRiskZone.objects.filter(
-        is_active=True,
-        current_score__isnull=False,
-        min_latitude__lte=max_lat,
-        max_latitude__gte=min_lat,
-        min_longitude__lte=max_lng,
-        max_longitude__gte=min_lng,
-    ).order_by("zone_id")
-    features = []
-    for zone in zones:
-        props = CrimeRiskZoneSerializer(zone).data
-        geometry = props.pop("geometry")
-        features.append({"type": "Feature", "id": zone.zone_id, "properties": props, "geometry": geometry})
-
-    return Response({
-        "type": "FeatureCollection",
-        "features": features,
-        "available": bool(features),
-        "source_configured": bool(getattr(settings, "CRIME_RISK_FEED_URL", "")),
-        "message": None if features else (
-            "Risk data is unavailable until an approved geocoded crime feed is configured."
-            if not getattr(settings, "CRIME_RISK_FEED_URL", "")
-            else "No scored crime-risk data is available for this viewport yet."
-        ),
-    })
 
 
 def _valid_karachi_coordinate(latitude, longitude):
@@ -249,56 +196,11 @@ def preview_route_geometry(request):
     if any(lng == 0 and lat == 0 for lng, lat in coordinates):
         raise ValidationError({"stop_ids": "Each selected stop needs a valid map location."})
 
-    geometry, source = _road_geometry(coordinates)
-    return Response({"geometry": geometry, "source": source})
-
-
-def _is_line_string(geometry):
-    return (
-        isinstance(geometry, dict)
-        and geometry.get("type") == "LineString"
-        and isinstance(geometry.get("coordinates"), list)
-        and len(geometry["coordinates"]) >= 2
-    )
-
-
-def _is_straight_fallback(geometry, stop_coordinates):
-    if not _is_line_string(geometry) or len(stop_coordinates) < 2:
-        return False
-    try:
-        points = [(float(point[0]), float(point[1])) for point in geometry["coordinates"]]
-        start = (float(stop_coordinates[0][0]), float(stop_coordinates[0][1]))
-        end = (float(stop_coordinates[-1][0]), float(stop_coordinates[-1][1]))
-    except (TypeError, ValueError, IndexError):
-        return False
-
-    tolerance = 1e-5
-    if any(max(abs(point[index] - expected[index]) for index in (0, 1)) > tolerance
-           for point, expected in ((points[0], start), (points[-1], end))):
-        return False
-
-    delta_lng = end[0] - start[0]
-    delta_lat = end[1] - start[1]
-    length_squared = delta_lng ** 2 + delta_lat ** 2
-    if length_squared == 0:
-        return False
-    return all(
-        abs(delta_lng * (point[1] - start[1]) - delta_lat * (point[0] - start[0]))
-        <= tolerance * max(1, length_squared ** 0.5)
-        for point in points
-    )
-
-
-def _road_geometry(coordinates):
-    """Return a road line when available; never cache a straight-line fallback."""
-    fallback = {"type": "LineString", "coordinates": [[lng, lat] for lng, lat in coordinates]}
-    if len(coordinates) < 2:
-        return fallback, "fallback"
-
+    geometry = {"type": "LineString", "coordinates": [[lng, lat] for lng, lat in coordinates]}
     cache_key = _map_cache_key("route", ";".join(f"{lng:.6f},{lat:.6f}" for lng, lat in coordinates))
     cached = cache.get(cache_key)
-    if isinstance(cached, dict) and cached.get("source") == "provider" and _is_line_string(cached.get("geometry")):
-        return cached["geometry"], "cache"
+    if cached is not None:
+        return Response({"geometry": cached, "source": "cache"})
     try:
         coordinate_path = ";".join(f"{lng},{lat}" for lng, lat in coordinates)
         response = req_lib.get(
@@ -309,21 +211,12 @@ def _road_geometry(coordinates):
         response.raise_for_status()
         payload = response.json()
         routed_geometry = payload.get("routes", [{}])[0].get("geometry")
-        if _is_line_string(routed_geometry):
-            cache.set(cache_key, {"geometry": routed_geometry, "source": "provider"}, timeout=60 * 60 * 24 * 7)
-            return routed_geometry, "provider"
+        if isinstance(routed_geometry, dict) and routed_geometry.get("type") == "LineString":
+            geometry = routed_geometry
     except (req_lib.RequestException, ValueError, IndexError, AttributeError):
         pass
-    return fallback, "fallback"
-
-
-def _display_route_geometry(route, fallback_geometry):
-    geometry = route.geometry if isinstance(route.geometry, dict) else None
-    # A previous provider outage may have persisted a rounded or interpolated
-    # stop-to-stop fallback. Treat any collinear fallback as stale.
-    if not _is_line_string(geometry) or _is_straight_fallback(geometry, fallback_geometry):
-        return _road_geometry(fallback_geometry)
-    return geometry, "stored"
+    cache.set(cache_key, geometry, timeout=60 * 60 * 24 * 7)
+    return Response({"geometry": geometry, "source": "provider" if len(geometry["coordinates"]) > len(coordinates) else "fallback"})
 # a view — auth question first, see below
 class BusLocationPingCreateView(generics.CreateAPIView):
     queryset = BusLocationPing.objects.all()
@@ -389,7 +282,9 @@ class RouteViewSet(viewsets.ModelViewSet):
             if not (float(route_stop.stop.latitude) == 0 and float(route_stop.stop.longitude) == 0)
         ]
         fallback_geometry = [[stop["longitude"], stop["latitude"]] for stop in stops]
-        geometry, geometry_source = _display_route_geometry(route, fallback_geometry)
+        geometry = route.geometry if isinstance(route.geometry, dict) else None
+        if not geometry or geometry.get("type") != "LineString":
+            geometry = {"type": "LineString", "coordinates": fallback_geometry}
         return {
             "id": route.id,
             "name": route.name,
@@ -397,7 +292,7 @@ class RouteViewSet(viewsets.ModelViewSet):
             "status": route.status,
             "is_active": route.is_active,
             "geometry": geometry,
-            "geometry_is_cached": geometry_source in {"stored", "cache"},
+            "geometry_is_cached": bool(route.geometry),
             "stops": stops,
         }
 
@@ -667,18 +562,13 @@ def eligible_route_stops(request):
 
     if not semester:
         return Response({"detail": "No active semester found."}, status=status.HTTP_404_NOT_FOUND)
-    if not semester.accepts_registrations:
-        detail = (
-            "The registration deadline for this semester has passed."
-            if semester.deadline_passed
-            else "Registration is not open for this semester."
-        )
-        return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
+    if not semester.is_active or not semester.registration_open:
+        return Response({"detail": "Registration is not open for this semester."}, status=status.HTTP_400_BAD_REQUEST)
 
     active_assignment_routes = RouteAssignment.objects.filter(
         semester=semester, is_active=True, route__is_active=True
     ).values_list("route_id", flat=True)
-    route_stops = list(
+    route_stops = (
         RouteStop.objects.filter(
             route_id__in=active_assignment_routes,
             route__status="published",
@@ -687,20 +577,8 @@ def eligible_route_stops(request):
         .select_related("route", "stop")
         .order_by("route__name", "stop_order")
     )
-    stops_by_route = {}
-    for route_stop in route_stops:
-        if float(route_stop.stop.latitude) != 0 or float(route_stop.stop.longitude) != 0:
-            stops_by_route.setdefault(route_stop.route_id, []).append(route_stop)
-    route_geometries = {
-        route_id: _display_route_geometry(
-            stops[0].route,
-            [[float(stop.stop.longitude), float(stop.stop.latitude)] for stop in stops],
-        )[0]
-        for route_id, stops in stops_by_route.items()
-    }
     return Response({
         "semester": {"id": semester.id, "name": semester.name},
-        "route_geometries": route_geometries,
         "route_stops": [
             {
                 "id": route_stop.id,
@@ -963,12 +841,8 @@ class TransportRegistrationViewSet(viewsets.ModelViewSet):
 
         if not route_stop.route.is_active or route_stop.route.status != "published":
             raise ValidationError("No route found for this stop")
-        if not semester.accepts_registrations:
-            raise ValidationError({"semester_id": (
-                "The registration deadline for this semester has passed."
-                if semester.deadline_passed
-                else "Registration is not open for this semester."
-            )})
+        if not semester.is_active or not semester.registration_open:
+            raise ValidationError({"semester_id": "Registration is not open for this semester."})
 
         registration = serializer.save(
             student=profile,
@@ -1276,149 +1150,11 @@ class WaitlistViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrReadOnly] # Admin full access, Students read only
 
     def get_queryset(self):
-        # Scope on staff status, not group membership: a student who was never
-        # added to the "Student" group would otherwise read every other
-        # student's queue entry.
         user = self.request.user
-        base = Waitlist.objects.select_related(
-            "registration__student__user",
-            "registration__route",
-            "registration__stop",
-        )
-        if user.is_staff:
-            return base
-        profile = StudentProfile.objects.filter(user=user).first()
-        if not profile:
-            return Waitlist.objects.none()
-        return base.filter(registration__student=profile)
-
-    @action(detail=False, methods=["get"], permission_classes=[IsAdmin])
-    def overview(self, request):
-        """
-        The waiting list grouped by route, with each route's seat position.
-
-        Queues are per route: position 1 on 6B is a different person from
-        position 1 on 5B, so they are never shown as one combined list.
-        """
-        semester = Semester.objects.filter(is_active=True).first()
-        if not semester:
-            return Response({"semester": None, "routes": []})
-
-        entries = (
-            Waitlist.objects.filter(
-                registration__semester=semester,
-                status__in=["waiting", "offered"],
-            )
-            .select_related(
-                "registration__student__user",
-                "registration__route",
-                "registration__stop",
-            )
-            .order_by("registration__route__name", "position", "added_at")
-        )
-
-        grouped = {}
-        for entry in entries:
-            registration = entry.registration
-            route = registration.route
-            if route is None:
-                continue
-            grouped.setdefault(route.id, {"route": route, "entries": []})
-            grouped[route.id]["entries"].append(entry)
-
-        # Include routes with free seats but nobody queued, so an admin can see
-        # capacity sitting idle.
-        for assignment in RouteAssignment.objects.filter(
-            semester=semester, is_active=True
-        ).select_related("route"):
-            grouped.setdefault(assignment.route_id,
-                               {"route": assignment.route, "entries": []})
-
-        routes = []
-        for data in grouped.values():
-            route = data["route"]
-            assignments = RouteAssignment.objects.filter(
-                route=route, semester=semester, is_active=True
-            ).select_related("bus", "driver")
-
-            capacity = sum(a.bus.capacity for a in assignments)
-            occupied = SeatAllocation.objects.filter(
-                route_assignment__in=assignments
-            ).count()
-            free = max(capacity - occupied, 0)
-
-            routes.append({
-                "route_id": route.id,
-                "route_name": route.name,
-                "buses": [a.bus.bus_number for a in assignments],
-                "drivers": [a.driver.name for a in assignments],
-                "capacity": capacity,
-                "occupied": occupied,
-                "free_seats": free,
-                "queue_length": len(data["entries"]),
-                "queue": [
-                    {
-                        "id": entry.id,
-                        "position": entry.position,
-                        "status": entry.status,
-                        "roll_number": entry.registration.student.roll_number,
-                        "name": (
-                            f"{entry.registration.student.user.first_name} "
-                            f"{entry.registration.student.user.last_name}"
-                        ).strip() or entry.registration.student.user.username,
-                        "email": entry.registration.student.user.email,
-                        "phone": entry.registration.student.phone,
-                        "stop": entry.registration.stop.name if entry.registration.stop else None,
-                        "added_at": entry.added_at,
-                        "offer_expires_at": entry.offer_expires_at,
-                    }
-                    for entry in data["entries"]
-                ],
-            })
-
-        routes.sort(key=lambda item: item["route_name"])
-        return Response({"semester": str(semester), "routes": routes})
-
-    @action(detail=False, methods=["post"], permission_classes=[IsAdmin],
-            url_path="fill-empty-seats")
-    def fill_empty_seats(self, request):
-        """
-        Seat as many queued students as there is room for.
-
-        Promotion normally happens automatically when a seat is released, but
-        capacity can also appear without any seat being freed — an admin raises
-        a bus's capacity, or adds a second bus to a route. Nothing deletes a
-        SeatAllocation in those cases, so no signal fires. This closes that gap.
-        """
-        semester = Semester.objects.filter(is_active=True).first()
-        if not semester:
-            return Response({"detail": "No active semester."}, status=400)
-
-        route_id = request.data.get("route_id")
-        routes = Route.objects.filter(is_active=True)
-        if route_id:
-            routes = routes.filter(pk=route_id)
-
-        promoted = []
-        for route in routes:
-            # Keep promoting while seats remain and the queue is not empty.
-            while True:
-                registration = promote_next_from_waitlist(route, semester)
-                if registration is None:
-                    break
-                promoted.append({
-                    "route": route.name,
-                    "roll_number": registration.student.roll_number,
-                })
-
-        return Response({
-            "detail": (
-                f"Seated {len(promoted)} student(s) from the waiting list."
-                if promoted else
-                "No students could be seated — no free seats, or the queues are empty."
-            ),
-            "promoted": promoted,
-        })
+        if user.groups.filter(name="Student").exists():
+            student_profile = StudentProfile.objects.get(user=user)
+            return Waitlist.objects.filter(registration__student=student_profile)
+        return Waitlist.objects.all()
 
 
 class FeeVerificationViewSet(viewsets.ModelViewSet):
@@ -2190,31 +1926,6 @@ def get_challan(request, pk):
     data["registration_status"] = registration.status
     return Response(data)
 
-def _mark_seat_confirmed(profile, semester):
-    """
-    Payment received: a held seat becomes an owned one.
-
-    Clears the payment deadline and flips both registration records, so the
-    student never sees "Seat Held" with a countdown after they have paid.
-    """
-    semester_registration = SemesterRegistration.objects.filter(
-        student=profile, semester=semester
-    ).first()
-    if semester_registration and semester_registration.status != "Confirmed":
-        semester_registration.status = "Confirmed"
-        semester_registration.save(update_fields=["status", "updated_at"])
-
-    TransportRegistration.objects.filter(
-        student=profile, semester=semester
-    ).exclude(status="Cancelled").update(status="Approved")
-
-    Challan.objects.filter(
-        registration__student=profile,
-        registration__semester=semester,
-        status="paid",
-    ).update(payment_due_at=None)
-
-
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def pay_challan(request, pk):
@@ -2232,8 +1943,6 @@ def pay_challan(request, pk):
 
     challan.status = "paid"
     challan.save()
-
-    _mark_seat_confirmed(profile, challan.registration.semester)
 
     # Create or update FeeVerification record
     fee_verification, _ = FeeVerification.objects.get_or_create(
@@ -2552,8 +2261,6 @@ def verify_payment_otp(request, pk):
 
         challan.status = "paid"
         challan.save()
-
-        _mark_seat_confirmed(profile, registration.semester)
 
         FeeVerification.objects.get_or_create(
             student=profile,

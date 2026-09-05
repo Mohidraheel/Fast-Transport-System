@@ -34,6 +34,7 @@ import StudentIncidents from "./pages/student/StudentIncidents";
 import AdminIncidents from "./pages/admin/AdminIncidents";
 import RouteBuilder from "./pages/admin/RouteBuilder";
 import AdminRouteDetail from "./pages/admin/AdminRouteDetail";
+import AdminWaitlist from "./pages/admin/AdminWaitlist";
 
 // Redirect /dashboard based on stored role
 function DashboardRedirect() {
@@ -107,6 +108,7 @@ function App() {
         <Route path="/admin/routestop" element={<StaffRoute><RouteStopsPage /></StaffRoute>} />
         <Route path="/admin/feeverifications" element={<StaffRoute><AdminFeeVerifications /></StaffRoute>} />
         <Route path="/admin/student-bus-assignments" element={<StaffRoute><StudentBusAssignmentsPage /></StaffRoute>} />
+        <Route path="/admin/waitlist" element={<StaffRoute><AdminWaitlist /></StaffRoute>} />
         <Route path="/admin/routechangerequests" element={<StaffRoute><AdminRouteChangeRequests /></StaffRoute>} />
         <Route path="/admin/incidents" element={<StaffRoute><AdminIncidents /></StaffRoute>} />
         <Route path="/admin/export" element={<StaffRoute><AdminExportPage /></StaffRoute>} />

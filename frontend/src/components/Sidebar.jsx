@@ -126,6 +126,12 @@ const Icon = ({ name, size = 17 }) => {
         <line x1="12" y1="15" x2="12" y2="3"/>
       </svg>
     ),
+    waitlist: (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="9"/>
+        <path d="M12 7v5l3 2"/>
+      </svg>
+    ),
     incident: (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
@@ -160,6 +166,7 @@ const adminGroups = [
     links: [
       { to: "/admin/semesters",               label: "Semesters",           icon: "semester"   },
       { to: "/admin/student-bus-assignments", label: "Bus Assignments",     icon: "seat"       },
+      { to: "/admin/waitlist",                label: "Waiting List",        icon: "waitlist"   },
       { to: "/admin/feeverifications",        label: "Fee Verifications",   icon: "fee"        },
       { to: "/admin/routechangerequests",     label: "Route Requests",      icon: "routeChange"},
       { to: "/admin/incidents",               label: "Incidents",           icon: "incident"   },
