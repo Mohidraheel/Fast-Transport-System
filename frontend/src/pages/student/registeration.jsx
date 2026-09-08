@@ -7,6 +7,15 @@ import { btn, colors } from "../../theme";
 import RouteMap from "../../components/maps/RouteMap";
 import { getSemesters, createRegistration, getRegistration, getChallan, getEligibleRouteStops } from "../../services/transportService";
 
+// A student accumulates one row per attempt. The live registration is
+// whichever is not cancelled; if every row is cancelled we keep the newest so
+// the page can offer to register again.
+function pickRegistration(payload) {
+  const list = payload?.results ?? payload;
+  if (!Array.isArray(list) || list.length === 0) return null;
+  return list.find((r) => r.status !== "Cancelled") || list[list.length - 1];
+}
+
 function TransportRegistration() {
   const [registration, setRegistration] = useState(null);
   const [semesters, setSemesters] = useState([]);
@@ -25,10 +34,8 @@ function TransportRegistration() {
         const [semRes, regRes] = await Promise.all([getSemesters(), getRegistration()]);
         const semData = semRes.data?.results ?? semRes.data;
         setSemesters(Array.isArray(semData) ? semData : []);
-        const regList = regRes.data?.results ?? regRes.data;
-
-        if (Array.isArray(regList) && regList.length > 0) {
-          const reg = regList[0];
+        const reg = pickRegistration(regRes.data);
+        if (reg) {
           setRegistration(reg);
           try { const cr = await getChallan(reg.id); setChallan(cr.data); } catch { setChallan(null); }
         }
@@ -57,8 +64,20 @@ function TransportRegistration() {
     setLoading(true); setMessage("");
     try {
       await createRegistration({ route_stop_id: selectedRouteStop, semester_id: selectedSemester });
+
+      // Re-read and pick the live row. Taking data[0] here would grab the
+      // previous cancelled registration and leave the page showing the form
+      // until a manual refresh.
       const regRes = await getRegistration();
-      setRegistration(regRes.data[0]);
+      const reg = pickRegistration(regRes.data);
+      setRegistration(reg);
+
+      // A waitlisted student has no challan at all, so a miss is expected.
+      if (reg) {
+        try { const cr = await getChallan(reg.id); setChallan(cr.data); } catch { setChallan(null); }
+      }
+
+      setSelectedRouteStop("");
       setMessage("Registration submitted successfully!");
     } catch (err) {
       console.error(err.response?.data);
@@ -107,8 +126,61 @@ function TransportRegistration() {
         <Banner variant="success"><strong>Approved</strong> — Your transport registration has been confirmed.</Banner>
       )}
 
-      {/* Form */}
-      {!registration && (
+      {status === "seat held" && (
+        <Banner variant="warning">
+          <strong>Seat Held</strong> — A seat is reserved for you, but it is not
+          confirmed until the fee is paid. If payment is not received by the
+          deadline the seat passes to the next student on the waiting list.
+          <div>
+            <button style={{ ...btn.primary, marginTop: "10px" }} onClick={() => navigate(`/student/challan/${registration.id}`)}>
+              Pay Fee (View Challan)
+            </button>
+          </div>
+        </Banner>
+      )}
+
+      {status === "waitlisted" && (
+        <Banner variant="info">
+          <strong>On the Waiting List</strong> — This route is currently full, so
+          you are queued for the next available seat.
+          <br />
+          <span style={{ fontSize: "13px" }}>
+            You have not been charged. A challan is issued only once a seat is
+            confirmed for you, and you will be notified the moment one opens up.
+          </span>
+          <div>
+            <button style={{ ...btn.ghost, marginTop: "10px" }} onClick={() => navigate("/student/transport")}>
+              View my position
+            </button>
+          </div>
+        </Banner>
+      )}
+
+      {status === "payment_submitted" && (
+        <Banner variant="info">
+          <strong>Payment Submitted</strong> — Waiting for the transport office to
+          verify your payment.
+        </Banner>
+      )}
+
+      {status === "cancelled" && (
+        <Banner variant="warning">
+          <strong>Registration Cancelled</strong> — Your previous registration was
+          cancelled or its seat offer expired. You have not been charged, and you
+          can register again below while registration is open.
+        </Banner>
+      )}
+
+      {status === "rejected" && (
+        <Banner variant="danger">
+          <strong>Registration Rejected</strong> — Please contact the transport
+          office for details.
+        </Banner>
+      )}
+
+      {/* Form — also shown after a cancellation or an expired seat offer, so a
+          student can rejoin the queue without contacting the office. */}
+      {(!registration || status === "cancelled") && (
         <div className="grid-2col">
           <ContentCard>
             <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
